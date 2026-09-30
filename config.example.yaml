@@ -1,0 +1,26 @@
+# Alamat dengarkan. HTTPS ditangani Cloudflare atau reverse proxy di depan.
+listen: ":8080"
+
+# File GeoLite2-Country. Kosongkan jika negara hanya diambil dari CF-IPCountry.
+geoip_db: "GeoLite2-Country.mmdb"
+
+# CIDR reverse proxy yang boleh mengirim X-Forwarded-For.
+# Kosong berarti IP klien adalah koneksi langsung, kecuali header Cloudflare.
+trusted_proxies: []
+
+# Kode negara ISO yang ditolak.
+blocked_countries:
+  - CN
+  - RU
+
+bot:
+  # User-agent kosong ditolak.
+  block_empty_user_agent: true
+  # Pola tambahan, tidak peka huruf besar/kecil, dicocokkan sebagai potongan teks.
+  user_agent_contains: []
+
+# Domain yang DNS-nya mengarah ke server ini. Dashboard tidak memakai entri ini:
+# dashboard terbuka lewat IP server atau localhost.
+routes:
+  - host: go.example.com
+    target: https://offer.example/landing

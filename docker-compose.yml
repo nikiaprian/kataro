@@ -1,0 +1,11 @@
+services:
+  gate:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - gate-data:/data
+    restart: unless-stopped
+
+volumes:
+  gate-data:

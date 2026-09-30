@@ -1,0 +1,7 @@
+.git
+gate
+gate.exe
+*.mmdb
+config.yaml
+config.verify.yaml
+README.md

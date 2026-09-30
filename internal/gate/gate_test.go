@@ -1,0 +1,118 @@
+package gate
+
+import (
+	"net/http"
+	"testing"
+
+	"keitaro/internal/config"
+)
+
+func testGate(t *testing.T, yaml string) *Gate {
+	t.Helper()
+	cfg, err := config.Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	return New(cfg)
+}
+
+func TestDecide(t *testing.T) {
+	g := testGate(t, `
+blocked_countries: ["CN", "ru"]
+bot:
+  block_empty_user_agent: true
+  user_agent_contains: ["my-scanner"]
+routes:
+  - host: go.example.com
+    target: https://offer.example/landing
+  - host: "Ads.Example.com:443"
+    target: "https://offer.example/other?src=1"
+`)
+
+	chrome := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+	tests := []struct {
+		name     string
+		in       Input
+		status   int
+		location string
+	}{
+		{
+			name:   "empty user agent",
+			in:     Input{Host: "go.example.com", Country: "US"},
+			status: http.StatusForbidden,
+		},
+		{
+			name:   "known bot fragment",
+			in:     Input{Host: "go.example.com", UserAgent: "curl/8.0", Country: "US"},
+			status: http.StatusForbidden,
+		},
+		{
+			name:   "headless browser",
+			in:     Input{Host: "go.example.com", UserAgent: "Mozilla/5.0 HeadlessChrome", Country: "US"},
+			status: http.StatusForbidden,
+		},
+		{
+			name:   "extra fragment",
+			in:     Input{Host: "go.example.com", UserAgent: "My-Scanner/1.0", Country: "US"},
+			status: http.StatusForbidden,
+		},
+		{
+			name:   "blocked country",
+			in:     Input{Host: "go.example.com", UserAgent: chrome, Country: "cn"},
+			status: http.StatusForbidden,
+		},
+		{
+			name:     "unknown country allowed",
+			in:       Input{Host: "go.example.com", UserAgent: chrome, Country: ""},
+			status:   http.StatusFound,
+			location: "https://offer.example/landing",
+		},
+		{
+			name:   "unknown host",
+			in:     Input{Host: "other.example", UserAgent: chrome, Country: "US"},
+			status: http.StatusNotFound,
+		},
+		{
+			name:     "redirect keeps query",
+			in:       Input{Host: "go.example.com", UserAgent: chrome, Country: "ID", RawQuery: "click=1&sub=a"},
+			status:   http.StatusFound,
+			location: "https://offer.example/landing?click=1&sub=a",
+		},
+		{
+			name:     "host case and port",
+			in:       Input{Host: "ADS.EXAMPLE.COM:443", UserAgent: chrome, Country: "ID", RawQuery: "x=2"},
+			status:   http.StatusFound,
+			location: "https://offer.example/other?src=1&x=2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := g.Decide(tt.in)
+			if got.Status != tt.status {
+				t.Fatalf("status = %d, want %d", got.Status, tt.status)
+			}
+			if got.Location != tt.location {
+				t.Fatalf("location = %q, want %q", got.Location, tt.location)
+			}
+		})
+	}
+}
+
+func TestEmptyUserAgentAllowed(t *testing.T) {
+	g := testGate(t, `
+bot:
+  block_empty_user_agent: false
+routes:
+  - host: go.example.com
+    target: https://offer.example/landing
+`)
+	got := g.Decide(Input{Host: "go.example.com", Country: "US"})
+	if got.Status != http.StatusFound {
+		t.Fatalf("status = %d, want %d", got.Status, http.StatusFound)
+	}
+	if got.Location != "https://offer.example/landing" {
+		t.Fatalf("location = %q", got.Location)
+	}
+}
