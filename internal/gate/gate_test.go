@@ -100,6 +100,32 @@ routes:
 	}
 }
 
+func TestSlugAndParams(t *testing.T) {
+	g := testGate(t, `
+routes:
+  - host: go.example.com
+    target: https://domain.com
+    slug: asdfg
+    params: "zxc=[qwerty]"
+`)
+	chrome := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+	filled := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "ID", RawQuery: "qwerty=abc"})
+	if filled.Status != http.StatusFound || filled.Location != "https://domain.com/asdfg?zxc=abc" {
+		t.Fatalf("filled = %d %q", filled.Status, filled.Location)
+	}
+
+	missing := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "ID"})
+	if missing.Location != "https://domain.com/asdfg?zxc=[qwerty]" {
+		t.Fatalf("missing = %q", missing.Location)
+	}
+
+	spaced := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "ID", RawQuery: "qwerty=a+b"})
+	if spaced.Location != "https://domain.com/asdfg?zxc=a+b" {
+		t.Fatalf("spaced = %q", spaced.Location)
+	}
+}
+
 func TestEmptyUserAgentAllowed(t *testing.T) {
 	g := testGate(t, `
 bot:

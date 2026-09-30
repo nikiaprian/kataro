@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -12,9 +13,13 @@ import (
 )
 
 // Route is one host-to-target mapping. Host is normalized.
+// Slug is a path added to the target. Params is a query template;
+// tokens such as [qwerty] are filled from the visitor's query string.
 type Route struct {
 	Host   string
 	Target *url.URL
+	Slug   string
+	Params string
 }
 
 // Config is the validated runtime configuration.
@@ -50,6 +55,8 @@ type botFile struct {
 type routeFile struct {
 	Host   string `yaml:"host"`
 	Target string `yaml:"target"`
+	Slug   string `yaml:"slug,omitempty"`
+	Params string `yaml:"params,omitempty"`
 }
 
 // Load reads and validates a YAML config file.
@@ -118,7 +125,15 @@ func Parse(raw []byte) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("config: route %d: %w", i, err)
 		}
-		routes = append(routes, Route{Host: host, Target: target})
+		slug, err := parseSlug(r.Slug)
+		if err != nil {
+			return nil, fmt.Errorf("config: route %d: %w", i, err)
+		}
+		params, err := parseParams(r.Params)
+		if err != nil {
+			return nil, fmt.Errorf("config: route %d: %w", i, err)
+		}
+		routes = append(routes, Route{Host: host, Target: target, Slug: slug, Params: params})
 		domains = appendDomain(domains, host)
 	}
 
@@ -171,8 +186,8 @@ func RemoveDomain(cfg *Config, host string) (*Config, error) {
 	return next, nil
 }
 
-// UpsertRoute adds a redirect domain or replaces its target.
-func UpsertRoute(cfg *Config, host, target string) (*Config, error) {
+// UpsertRoute adds a redirect or replaces its target, slug, and params.
+func UpsertRoute(cfg *Config, host, target, slug, params string) (*Config, error) {
 	host, err := normalizeHost(host)
 	if err != nil {
 		return nil, err
@@ -181,17 +196,26 @@ func UpsertRoute(cfg *Config, host, target string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	slug, err = parseSlug(slug)
+	if err != nil {
+		return nil, err
+	}
+	params, err = parseParams(params)
+	if err != nil {
+		return nil, err
+	}
 	if !hasDomain(cfg.Domains, host) {
 		return nil, fmt.Errorf("config: domain %q is not in the incoming list", host)
 	}
 	next := cfg.clone()
-	for i, route := range next.Routes {
-		if route.Host == host {
-			next.Routes[i].Target = dest
+	route := Route{Host: host, Target: dest, Slug: slug, Params: params}
+	for i, existing := range next.Routes {
+		if existing.Host == host {
+			next.Routes[i] = route
 			return next, nil
 		}
 	}
-	next.Routes = append(next.Routes, Route{Host: host, Target: dest})
+	next.Routes = append(next.Routes, route)
 	return next, nil
 }
 
@@ -286,7 +310,12 @@ func (c *Config) file() file {
 	}
 	routes := make([]routeFile, 0, len(c.Routes))
 	for _, route := range c.Routes {
-		routes = append(routes, routeFile{Host: route.Host, Target: route.Target.String()})
+		routes = append(routes, routeFile{
+			Host:   route.Host,
+			Target: route.Target.String(),
+			Slug:   route.Slug,
+			Params: route.Params,
+		})
 	}
 	proxies := c.TrustedRaw
 	if proxies == nil {
@@ -377,6 +406,39 @@ func parseCountries(values []string) (map[string]struct{}, error) {
 		out[code] = struct{}{}
 	}
 	return out, nil
+}
+
+var tokenPattern = regexp.MustCompile(`\[([A-Za-z0-9_]+)\]`)
+
+func parseSlug(raw string) (string, error) {
+	s := strings.Trim(strings.TrimSpace(raw), "/")
+	if s == "" {
+		return "", nil
+	}
+	if strings.Contains(s, "..") || strings.ContainsAny(s, "?#\\ \t\r\n") {
+		return "", fmt.Errorf("slug hanya boleh huruf, angka, garis, dan token [nama]")
+	}
+	cleaned := tokenPattern.ReplaceAllString(s, "x")
+	for _, r := range cleaned {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '/' || r == '-' || r == '_' || r == '.':
+		default:
+			return "", fmt.Errorf("slug hanya boleh huruf, angka, garis, dan token [nama]")
+		}
+	}
+	return s, nil
+}
+
+func parseParams(raw string) (string, error) {
+	s := strings.TrimPrefix(strings.TrimSpace(raw), "?")
+	if s == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(s, " \t\r\n#") {
+		return "", fmt.Errorf("parameter tidak valid")
+	}
+	return s, nil
 }
 
 func parseTarget(raw string) (*url.URL, error) {

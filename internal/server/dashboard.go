@@ -4,6 +4,8 @@ import (
 	"html/template"
 	"net/http"
 	"sort"
+
+	"keitaro/internal/gate"
 )
 
 type dashRoute struct {
@@ -27,7 +29,7 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dashboard</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.45; max-width: 46rem; }
+  body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.45; max-width: 64rem; }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: 0.45rem 0.6rem 0.45rem 0; border-bottom: 1px solid #ddd; vertical-align: middle; }
   code, input, select { font-family: ui-monospace, monospace; }
@@ -47,7 +49,7 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
     <button type="submit">Keluar</button>
   </form>
 </div>
-<p>Domain yang DNS-nya mengarah ke server ini akan diarahkan ke tujuan di bawah. Perubahan langsung tersimpan.</p>
+<p>Domain yang DNS-nya mengarah ke server ini akan diarahkan ke tujuan di bawah.</p>
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 
 <h2>Domain masuk</h2>
@@ -113,9 +115,12 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
     <option value="">Pilih domain masuk</option>
     {{range .Domains}}<option value="{{.}}">{{.}}</option>{{end}}
   </select>
-  <input name="target" placeholder="https://tujuan.com/halaman" required>
+  <input name="target" placeholder="https://tujuan.com" required>
+  <input name="slug" placeholder="slug, contoh asdfg">
+  <input name="params" placeholder="param, contoh zxc=[qwerty]">
   <button type="submit">Simpan redirect</button>
 </form>
+<p>Slug dan parameter ditambahkan ke URL tujuan. Token <code>[nama]</code> diisi dari parameter kunjungan: <code>?qwerty=abc</code> menjadi <code>zxc=abc</code>. Jika parameter itu tidak ada, <code>[qwerty]</code> tetap tertulis.</p>
 {{else}}
 <p>Tambahkan domain masuk terlebih dahulu.</p>
 {{end}}
@@ -196,7 +201,7 @@ func (h *handler) dashPage(csrf, errMsg string) dashPage {
 		SSLEmail:  h.cfg.SSLEmail,
 	}
 	for _, route := range h.cfg.Routes {
-		page.Routes = append(page.Routes, dashRoute{Host: route.Host, Target: route.Target.String()})
+		page.Routes = append(page.Routes, dashRoute{Host: route.Host, Target: gate.Location(route, "")})
 	}
 	return page
 }

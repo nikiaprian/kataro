@@ -59,7 +59,7 @@ func (m *Manager) Install(domain string, ssl bool, email string) error {
 	if existing, readErr := os.ReadFile(path); readErr == nil && !bytes.Contains(existing, []byte(marker)) {
 		return fmt.Errorf("file nginx %s sudah ada dan bukan buatan dashboard", name)
 	}
-	body := []byte(siteConfig(domain, m.Upstream))
+	body := []byte(siteConfig(domain, m.Upstream, "", ""))
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		return fmt.Errorf("gagal menulis konfigurasi nginx: %w", err)
 	}
@@ -80,6 +80,18 @@ func (m *Manager) Install(domain string, ssl bool, email string) error {
 	}
 	if err := m.certbot(domain, email); err != nil {
 		return fmt.Errorf("konfigurasi nginx sudah dipasang, SSL gagal: %s", err.Error())
+	}
+	if fullchain, privkey, ok := m.certFiles(domain); ok {
+		body = []byte(siteConfig(domain, m.Upstream, fullchain, privkey))
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			return fmt.Errorf("gagal menulis konfigurasi SSL: %w", err)
+		}
+		if err := m.nginxTest(); err != nil {
+			return err
+		}
+		if err := m.nginxReload(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -158,7 +170,7 @@ func (m *Manager) certbot(domain, email string) error {
 		"--non-interactive",
 		"--agree-tos",
 		"--keep-until-expiring",
-		"--redirect",
+		"--no-redirect",
 	}
 	if email == "" {
 		args = append(args, "--register-unsafely-without-email")
@@ -191,19 +203,44 @@ func defaultRun(name string, args ...string) ([]byte, error) {
 	return cmd.CombinedOutput()
 }
 
-func siteConfig(domain, upstream string) string {
-	return "# " + marker + "\n" +
-		"server {\n" +
-		"    listen 80;\n" +
-		"    server_name " + domain + ";\n" +
-		"\n" +
+func (m *Manager) certFiles(domain string) (fullchain, privkey string, ok bool) {
+	base := "/etc/letsencrypt/live/" + domain
+	check := base + "/fullchain.pem"
+	if m.HostRoot != "" {
+		check = m.HostRoot + check
+	}
+	if _, err := os.Stat(check); err != nil {
+		return "", "", false
+	}
+	return base + "/fullchain.pem", base + "/privkey.pem", true
+}
+
+func siteConfig(domain, upstream, fullchain, privkey string) string {
+	location := "" +
 		"    location / {\n" +
 		"        proxy_pass http://" + upstream + ";\n" +
 		"        proxy_set_header Host $host;\n" +
 		"        proxy_set_header X-Forwarded-For $remote_addr;\n" +
 		"        proxy_set_header X-Forwarded-Proto $scheme;\n" +
-		"    }\n" +
+		"    }\n"
+	config := "# " + marker + "\n" +
+		"server {\n" +
+		"    listen 80;\n" +
+		"    server_name " + domain + ";\n" +
+		"\n" +
+		location +
 		"}\n"
+	if fullchain != "" && privkey != "" {
+		config += "server {\n" +
+			"    listen 443 ssl;\n" +
+			"    server_name " + domain + ";\n" +
+			"    ssl_certificate " + fullchain + ";\n" +
+			"    ssl_certificate_key " + privkey + ";\n" +
+			"\n" +
+			location +
+			"}\n"
+	}
+	return config
 }
 
 func fileName(host string) (string, error) {

@@ -112,7 +112,7 @@ routes:
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err = UpsertRoute(cfg, "Ads.Example.com", "https://offer.example/baru")
+	cfg, err = UpsertRoute(cfg, "Ads.Example.com", "https://offer.example/baru", "asdfg", "zxc=[qwerty]")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,6 +133,9 @@ routes:
 	}
 	if loaded.Routes[1].Target.String() != "https://offer.example/baru" {
 		t.Fatalf("target = %s", loaded.Routes[1].Target)
+	}
+	if loaded.Routes[1].Slug != "asdfg" || loaded.Routes[1].Params != "zxc=[qwerty]" {
+		t.Fatalf("slug/params = %q %q", loaded.Routes[1].Slug, loaded.Routes[1].Params)
 	}
 	if _, ok := loaded.Blocked["ID"]; !ok {
 		t.Fatalf("blocked = %+v", loaded.Blocked)

@@ -3,6 +3,7 @@ package gate
 import (
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"keitaro/internal/config"
@@ -45,7 +46,7 @@ type Decision struct {
 
 // Gate decides whether to reject or redirect a request.
 type Gate struct {
-	routes     map[string]*url.URL
+	routes     map[string]config.Route
 	blocked    map[string]struct{}
 	needles    []string
 	blockEmpty bool
@@ -53,9 +54,9 @@ type Gate struct {
 
 // New builds a gate from validated config.
 func New(cfg *config.Config) *Gate {
-	routes := make(map[string]*url.URL, len(cfg.Routes))
+	routes := make(map[string]config.Route, len(cfg.Routes))
 	for _, r := range cfg.Routes {
-		routes[r.Host] = r.Target
+		routes[r.Host] = r
 	}
 	needles := make([]string, 0, len(defaultUAFragments)+len(cfg.UAContains))
 	seen := make(map[string]struct{}, len(defaultUAFragments)+len(cfg.UAContains))
@@ -116,7 +117,7 @@ func (g *Gate) Decide(in Input) Decision {
 	}
 	return Decision{
 		Status:   http.StatusFound,
-		Location: withQuery(target, in.RawQuery),
+		Location: Location(target, in.RawQuery),
 	}
 }
 
@@ -131,6 +132,53 @@ func (g *Gate) isBot(ua string) bool {
 		}
 	}
 	return false
+}
+
+var tokenPattern = regexp.MustCompile(`\[([A-Za-z0-9_]+)\]`)
+
+// Location builds the redirect URL. A slug is appended to the target path.
+// Tokens such as [qwerty] in the slug or params are replaced with the
+// visitor query value of that name. A missing token is left as written.
+// When params is empty, the visitor query string is appended as before.
+func Location(route config.Route, rawQuery string) string {
+	u := *route.Target
+	if slug := strings.Trim(route.Slug, "/"); slug != "" {
+		slug = replaceTokens(slug, rawQuery, true)
+		base := strings.TrimSuffix(u.Path, "/")
+		if base == "" {
+			u.Path = "/" + slug
+		} else {
+			u.Path = base + "/" + slug
+		}
+		u.RawPath = ""
+	}
+	if strings.TrimSpace(route.Params) == "" {
+		return withQuery(&u, rawQuery)
+	}
+	q := replaceTokens(route.Params, rawQuery, false)
+	if u.RawQuery == "" {
+		u.RawQuery = q
+	} else {
+		u.RawQuery = u.RawQuery + "&" + q
+	}
+	return u.String()
+}
+
+func replaceTokens(s, rawQuery string, path bool) string {
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		values = nil
+	}
+	return tokenPattern.ReplaceAllStringFunc(s, func(match string) string {
+		name := match[1 : len(match)-1]
+		if _, ok := values[name]; !ok {
+			return match
+		}
+		if path {
+			return url.PathEscape(values.Get(name))
+		}
+		return url.QueryEscape(values.Get(name))
+	})
 }
 
 func withQuery(target *url.URL, rawQuery string) string {
