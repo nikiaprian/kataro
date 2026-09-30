@@ -8,7 +8,8 @@ RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/gate .
 
 FROM alpine:3.21
 
-RUN adduser -D -H -u 65532 gate
+RUN apk add --no-cache util-linux \
+	&& adduser -D -H -u 65532 gate
 WORKDIR /data
 COPY --from=build /out/gate /usr/local/bin/gate
 COPY config.example.yaml /tmp/config.example.yaml

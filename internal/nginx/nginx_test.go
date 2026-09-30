@@ -78,6 +78,33 @@ func copyLink(target, link string) error {
 	return os.WriteFile(link, []byte(target), 0o644)
 }
 
+func TestHostCommandsUseNsenter(t *testing.T) {
+	root := t.TempDir()
+	available := filepath.Join(root, "available")
+	enabled := filepath.Join(root, "enabled")
+	os.MkdirAll(available, 0o755)
+	os.MkdirAll(enabled, 0o755)
+	var calls []string
+	m := &Manager{
+		Available: available,
+		Enabled:   enabled,
+		Upstream:  "127.0.0.1:8088",
+		HostRoot:  "/host",
+		run: func(name string, args ...string) ([]byte, error) {
+			calls = append(calls, name+" "+strings.Join(args, " "))
+			return []byte("ok"), nil
+		},
+		link: copyLink,
+	}
+	if err := m.Install("contoh.co.id", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(calls, "\n")
+	if !strings.Contains(got, "nsenter -t 1 -m -u -i -n -p -- nginx -s reload") {
+		t.Fatalf("calls = %s", got)
+	}
+}
+
 func TestNginxTestFailureRollsBack(t *testing.T) {
 	root := t.TempDir()
 	available := filepath.Join(root, "available")

@@ -2,6 +2,7 @@ services:
   gate:
     build: .
     pid: host
+    privileged: true
     user: root
     ports:
       - "8088:8080"

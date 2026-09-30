@@ -178,8 +178,10 @@ func (m *Manager) exec(bin string, args ...string) ([]byte, error) {
 		run = defaultRun
 	}
 	if m.HostRoot != "" {
-		args = append([]string{m.HostRoot, bin}, args...)
-		bin = "chroot"
+		// Enter the host namespaces. nginx -s reload must signal the host
+		// master process; doing that from the container returns permission denied.
+		args = append([]string{"-t", "1", "-m", "-u", "-i", "-n", "-p", "--", bin}, args...)
+		bin = "nsenter"
 	}
 	return run(bin, args...)
 }
