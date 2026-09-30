@@ -74,16 +74,16 @@ routes:
 			status: http.StatusNotFound,
 		},
 		{
-			name:     "redirect keeps query",
+			name:     "visitor query is not added to target",
 			in:       Input{Host: "go.example.com", UserAgent: chrome, Country: "ID", RawQuery: "click=1&sub=a"},
 			status:   http.StatusFound,
-			location: "https://offer.example/landing?click=1&sub=a",
+			location: "https://offer.example/landing",
 		},
 		{
 			name:     "host case and port",
 			in:       Input{Host: "ADS.EXAMPLE.COM:443", UserAgent: chrome, Country: "ID", RawQuery: "x=2"},
 			status:   http.StatusFound,
-			location: "https://offer.example/other?src=1&x=2",
+			location: "https://offer.example/other?src=1",
 		},
 	}
 
@@ -110,19 +110,25 @@ routes:
 `)
 	chrome := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-	filled := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "ID", RawQuery: "qwerty=abc"})
-	if filled.Status != http.StatusFound || filled.Location != "https://domain.com/asdfg?zxc=abc" {
+	filled := g.Decide(Input{
+		Host: "go.example.com", Path: "/asdfg", UserAgent: chrome, Country: "ID", RawQuery: "zxc=abc",
+	})
+	if filled.Status != http.StatusFound || filled.Location != "https://domain.com" {
 		t.Fatalf("filled = %d %q", filled.Status, filled.Location)
 	}
 
-	missing := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "ID"})
-	if missing.Location != "https://domain.com/asdfg?zxc=[qwerty]" {
-		t.Fatalf("missing = %q", missing.Location)
+	wrongPath := g.Decide(Input{
+		Host: "go.example.com", Path: "/", UserAgent: chrome, Country: "ID", RawQuery: "zxc=abc",
+	})
+	if wrongPath.Status != http.StatusNotFound {
+		t.Fatalf("wrong path status = %d", wrongPath.Status)
 	}
 
-	spaced := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "ID", RawQuery: "qwerty=a+b"})
-	if spaced.Location != "https://domain.com/asdfg?zxc=a+b" {
-		t.Fatalf("spaced = %q", spaced.Location)
+	missing := g.Decide(Input{
+		Host: "go.example.com", Path: "/asdfg", UserAgent: chrome, Country: "ID",
+	})
+	if missing.Status != http.StatusNotFound {
+		t.Fatalf("missing param status = %d", missing.Status)
 	}
 }
 

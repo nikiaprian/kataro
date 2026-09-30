@@ -70,6 +70,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r, trusted)
 	decision := g.Decide(gate.Input{
 		Host:      r.Host,
+		Path:      r.URL.Path,
 		UserAgent: r.UserAgent(),
 		RawQuery:  r.URL.RawQuery,
 		Country:   h.country(r, ip),

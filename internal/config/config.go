@@ -13,13 +13,25 @@ import (
 )
 
 // Route is one host-to-target mapping. Host is normalized.
-// Slug is a path added to the target. Params is a query template;
-// tokens such as [qwerty] are filled from the visitor's query string.
+// Slug and Params describe the incoming URL, for example
+// host/asdfg?zxc=[qwerty]. A [name] token matches any value.
 type Route struct {
 	Host   string
 	Target *url.URL
 	Slug   string
 	Params string
+}
+
+// Incoming is the visitor URL pattern: host, optional slug, optional params.
+func (r Route) Incoming() string {
+	s := r.Host
+	if r.Slug != "" {
+		s += "/" + r.Slug
+	}
+	if r.Params != "" {
+		s += "?" + r.Params
+	}
+	return s
 }
 
 // Config is the validated runtime configuration.

@@ -33,6 +33,7 @@ var defaultUAFragments = []string{
 // Input is everything the gate needs from one request. Country is already resolved.
 type Input struct {
 	Host      string
+	Path      string
 	UserAgent string
 	RawQuery  string
 	Country   string
@@ -111,13 +112,13 @@ func (g *Gate) Decide(in Input) Decision {
 	if err != nil {
 		return Decision{Status: http.StatusNotFound}
 	}
-	target, ok := g.routes[host]
-	if !ok {
+	route, ok := g.routes[host]
+	if !ok || !matchesIncoming(route, in.Path, in.RawQuery) {
 		return Decision{Status: http.StatusNotFound}
 	}
 	return Decision{
 		Status:   http.StatusFound,
-		Location: Location(target, in.RawQuery),
+		Location: route.Target.String(),
 	}
 }
 
@@ -136,60 +137,84 @@ func (g *Gate) isBot(ua string) bool {
 
 var tokenPattern = regexp.MustCompile(`\[([A-Za-z0-9_]+)\]`)
 
-// Location builds the redirect URL. A slug is appended to the target path.
-// Tokens such as [qwerty] in the slug or params are replaced with the
-// visitor query value of that name. A missing token is left as written.
-// When params is empty, the visitor query string is appended as before.
-func Location(route config.Route, rawQuery string) string {
-	u := *route.Target
-	if slug := strings.Trim(route.Slug, "/"); slug != "" {
-		slug = replaceTokens(slug, rawQuery, true)
-		base := strings.TrimSuffix(u.Path, "/")
-		if base == "" {
-			u.Path = "/" + slug
-		} else {
-			u.Path = base + "/" + slug
-		}
-		u.RawPath = ""
-	}
-	if strings.TrimSpace(route.Params) == "" {
-		return withQuery(&u, rawQuery)
-	}
-	q := replaceTokens(route.Params, rawQuery, false)
-	if u.RawQuery == "" {
-		u.RawQuery = q
-	} else {
-		u.RawQuery = u.RawQuery + "&" + q
-	}
-	return u.String()
+// matchesIncoming reports whether the request path and query fit the route.
+// An empty slug matches any path. An empty params template matches any query.
+// A [name] token matches any value for that piece.
+func matchesIncoming(route config.Route, path, rawQuery string) bool {
+	return pathMatches(route.Slug, path) && queryMatches(route.Params, rawQuery)
 }
 
-func replaceTokens(s, rawQuery string, path bool) string {
-	values, err := url.ParseQuery(rawQuery)
+func pathMatches(slug, path string) bool {
+	slug = strings.Trim(slug, "/")
+	path = strings.Trim(path, "/")
+	if slug == "" {
+		return true
+	}
+	re, ok := tokenRegexp(slug, `[^/]*`)
+	if !ok {
+		return path == slug
+	}
+	return re.MatchString(path)
+}
+
+func queryMatches(params, rawQuery string) bool {
+	if strings.TrimSpace(params) == "" {
+		return true
+	}
+	want, err := url.ParseQuery(params)
 	if err != nil {
-		values = nil
+		return false
 	}
-	return tokenPattern.ReplaceAllStringFunc(s, func(match string) string {
-		name := match[1 : len(match)-1]
-		if _, ok := values[name]; !ok {
-			return match
+	got, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return false
+	}
+	for key, expected := range want {
+		actual, ok := got[key]
+		if !ok {
+			return false
 		}
-		if path {
-			return url.PathEscape(values.Get(name))
+		for _, pattern := range expected {
+			if !valueMatches(pattern, first(actual)) {
+				return false
+			}
 		}
-		return url.QueryEscape(values.Get(name))
-	})
+	}
+	return true
 }
 
-func withQuery(target *url.URL, rawQuery string) string {
-	if rawQuery == "" {
-		return target.String()
+func valueMatches(pattern, actual string) bool {
+	re, ok := tokenRegexp(pattern, `.*`)
+	if !ok {
+		return pattern == actual
 	}
-	u := *target
-	if u.RawQuery == "" {
-		u.RawQuery = rawQuery
-	} else {
-		u.RawQuery = u.RawQuery + "&" + rawQuery
+	return re.MatchString(actual)
+}
+
+func tokenRegexp(pattern, token string) (*regexp.Regexp, bool) {
+	if !tokenPattern.MatchString(pattern) {
+		return nil, false
 	}
-	return u.String()
+	var b strings.Builder
+	b.WriteString("^")
+	last := 0
+	for _, loc := range tokenPattern.FindAllStringIndex(pattern, -1) {
+		b.WriteString(regexp.QuoteMeta(pattern[last:loc[0]]))
+		b.WriteString(token)
+		last = loc[1]
+	}
+	b.WriteString(regexp.QuoteMeta(pattern[last:]))
+	b.WriteString("$")
+	re, err := regexp.Compile(b.String())
+	if err != nil {
+		return nil, false
+	}
+	return re, true
+}
+
+func first(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }

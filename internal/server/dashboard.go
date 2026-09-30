@@ -4,13 +4,12 @@ import (
 	"html/template"
 	"net/http"
 	"sort"
-
-	"keitaro/internal/gate"
 )
 
 type dashRoute struct {
-	Host   string
-	Target string
+	Host     string
+	Incoming string
+	Target   string
 }
 
 type dashPage struct {
@@ -90,7 +89,7 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
 <tbody>
 {{range .Routes}}
 <tr>
-  <td><code>{{.Host}}</code></td>
+  <td><code>{{.Incoming}}</code></td>
   <td><code>{{.Target}}</code></td>
   <td>
     <form class="inline" method="post" action="/">
@@ -115,12 +114,12 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
     <option value="">Pilih domain masuk</option>
     {{range .Domains}}<option value="{{.}}">{{.}}</option>{{end}}
   </select>
+  <input name="slug" placeholder="slug domain masuk, contoh asdfg">
+  <input name="params" placeholder="param domain masuk, contoh zxc=[qwerty]">
   <input name="target" placeholder="https://tujuan.com" required>
-  <input name="slug" placeholder="slug, contoh asdfg">
-  <input name="params" placeholder="param, contoh zxc=[qwerty]">
   <button type="submit">Simpan redirect</button>
 </form>
-<p>Slug dan parameter ditambahkan ke URL tujuan. Token <code>[nama]</code> diisi dari parameter kunjungan: <code>?qwerty=abc</code> menjadi <code>zxc=abc</code>. Jika parameter itu tidak ada, <code>[qwerty]</code> tetap tertulis.</p>
+<p>Slug dan parameter adalah bagian URL domain masuk, misalnya <code>domain-masuk.com/asdfg?zxc=[qwerty]</code>. Tanda <code>[qwerty]</code> cocok dengan nilai apa pun. Kunjungan yang cocok diarahkan ke URL tujuan.</p>
 {{else}}
 <p>Tambahkan domain masuk terlebih dahulu.</p>
 {{end}}
@@ -201,7 +200,11 @@ func (h *handler) dashPage(csrf, errMsg string) dashPage {
 		SSLEmail:  h.cfg.SSLEmail,
 	}
 	for _, route := range h.cfg.Routes {
-		page.Routes = append(page.Routes, dashRoute{Host: route.Host, Target: gate.Location(route, "")})
+		page.Routes = append(page.Routes, dashRoute{
+			Host:     route.Host,
+			Incoming: route.Incoming(),
+			Target:   route.Target.String(),
+		})
 	}
 	return page
 }

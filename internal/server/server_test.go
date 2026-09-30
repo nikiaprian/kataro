@@ -56,7 +56,7 @@ func TestRedirectPreservesQuery(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://offer.example/landing?click=1&sub=a" {
+	if loc := rec.Header().Get("Location"); loc != "https://offer.example/landing" {
 		t.Fatalf("location = %q", loc)
 	}
 	body, _ := io.ReadAll(rec.Body)
@@ -262,7 +262,7 @@ func TestLoginAndEdit(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("new route status = %d", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://offer.example/baru?click=1" {
+	if loc := rec.Header().Get("Location"); loc != "https://offer.example/baru" {
 		t.Fatalf("location = %q", loc)
 	}
 
