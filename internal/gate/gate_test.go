@@ -132,6 +132,32 @@ routes:
 	}
 }
 
+func TestBlockedRedirect(t *testing.T) {
+	g := testGate(t, `
+blocked_countries: ["CN"]
+routes:
+  - host: go.example.com
+    target: https://offer.example/landing
+    blocked_target: https://safe.example/home
+`)
+	chrome := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+	country := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "CN"})
+	if country.Status != http.StatusFound || country.Location != "https://safe.example/home" {
+		t.Fatalf("country = %d %q", country.Status, country.Location)
+	}
+
+	bot := g.Decide(Input{Host: "go.example.com", UserAgent: "curl/8.0", Country: "ID"})
+	if bot.Status != http.StatusFound || bot.Location != "https://safe.example/home" {
+		t.Fatalf("bot = %d %q", bot.Status, bot.Location)
+	}
+
+	allowed := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "ID"})
+	if allowed.Status != http.StatusFound || allowed.Location != "https://offer.example/landing" {
+		t.Fatalf("allowed = %d %q", allowed.Status, allowed.Location)
+	}
+}
+
 func TestEmptyUserAgentAllowed(t *testing.T) {
 	g := testGate(t, `
 bot:

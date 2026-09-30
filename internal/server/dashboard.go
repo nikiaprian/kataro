@@ -10,6 +10,7 @@ type dashRoute struct {
 	Host     string
 	Incoming string
 	Target   string
+	Blocked  string
 }
 
 type dashPage struct {
@@ -85,12 +86,13 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
 <h2>Redirect</h2>
 {{if .Routes}}
 <table>
-<thead><tr><th>Domain masuk</th><th>Tujuan</th><th></th></tr></thead>
+<thead><tr><th>Domain masuk</th><th>Tujuan</th><th>Tujuan diblokir</th><th></th></tr></thead>
 <tbody>
 {{range .Routes}}
 <tr>
   <td><code>{{.Incoming}}</code></td>
   <td><code>{{.Target}}</code></td>
+  <td><code>{{.Blocked}}</code></td>
   <td>
     <form class="inline" method="post" action="/">
       <input type="hidden" name="csrf" value="{{$.CSRF}}">
@@ -117,9 +119,10 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
   <input name="slug" placeholder="slug domain masuk, contoh asdfg">
   <input name="params" placeholder="param domain masuk, contoh zxc=[qwerty]">
   <input name="target" placeholder="https://tujuan.com" required>
+  <input name="blocked_target" placeholder="https://tujuan-diblokir.com">
   <button type="submit">Simpan redirect</button>
 </form>
-<p>Slug dan parameter adalah bagian URL domain masuk, misalnya <code>domain-masuk.com/asdfg?zxc=[qwerty]</code>. Tanda <code>[qwerty]</code> cocok dengan nilai apa pun. Kunjungan yang cocok diarahkan ke URL tujuan.</p>
+<p>Slug dan parameter adalah bagian URL domain masuk, misalnya <code>domain-masuk.com/asdfg?zxc=[qwerty]</code>. Tanda <code>[qwerty]</code> cocok dengan nilai apa pun. Kunjungan yang lolos diarahkan ke URL tujuan. Bot dan negara yang diblokir diarahkan ke tujuan diblokir; jika kosong, permintaan ditolak.</p>
 {{else}}
 <p>Tambahkan domain masuk terlebih dahulu.</p>
 {{end}}
@@ -200,11 +203,15 @@ func (h *handler) dashPage(csrf, errMsg string) dashPage {
 		SSLEmail:  h.cfg.SSLEmail,
 	}
 	for _, route := range h.cfg.Routes {
-		page.Routes = append(page.Routes, dashRoute{
+		row := dashRoute{
 			Host:     route.Host,
 			Incoming: route.Incoming(),
 			Target:   route.Target.String(),
-		})
+		}
+		if route.BlockedTarget != nil {
+			row.Blocked = route.BlockedTarget.String()
+		}
+		page.Routes = append(page.Routes, row)
 	}
 	return page
 }

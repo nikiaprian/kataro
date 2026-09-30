@@ -16,10 +16,11 @@ import (
 // Slug and Params describe the incoming URL, for example
 // host/asdfg?zxc=[qwerty]. A [name] token matches any value.
 type Route struct {
-	Host   string
-	Target *url.URL
-	Slug   string
-	Params string
+	Host          string
+	Target        *url.URL
+	BlockedTarget *url.URL
+	Slug          string
+	Params        string
 }
 
 // Incoming is the visitor URL pattern: host, optional slug, optional params.
@@ -65,10 +66,11 @@ type botFile struct {
 }
 
 type routeFile struct {
-	Host   string `yaml:"host"`
-	Target string `yaml:"target"`
-	Slug   string `yaml:"slug,omitempty"`
-	Params string `yaml:"params,omitempty"`
+	Host          string `yaml:"host"`
+	Target        string `yaml:"target"`
+	BlockedTarget string `yaml:"blocked_target,omitempty"`
+	Slug          string `yaml:"slug,omitempty"`
+	Params        string `yaml:"params,omitempty"`
 }
 
 // Load reads and validates a YAML config file.
@@ -137,6 +139,10 @@ func Parse(raw []byte) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("config: route %d: %w", i, err)
 		}
+		blocked, err := parseOptionalTarget(r.BlockedTarget)
+		if err != nil {
+			return nil, fmt.Errorf("config: route %d: %w", i, err)
+		}
 		slug, err := parseSlug(r.Slug)
 		if err != nil {
 			return nil, fmt.Errorf("config: route %d: %w", i, err)
@@ -145,7 +151,7 @@ func Parse(raw []byte) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("config: route %d: %w", i, err)
 		}
-		routes = append(routes, Route{Host: host, Target: target, Slug: slug, Params: params})
+		routes = append(routes, Route{Host: host, Target: target, BlockedTarget: blocked, Slug: slug, Params: params})
 		domains = appendDomain(domains, host)
 	}
 
@@ -198,13 +204,18 @@ func RemoveDomain(cfg *Config, host string) (*Config, error) {
 	return next, nil
 }
 
-// UpsertRoute adds a redirect or replaces its target, slug, and params.
-func UpsertRoute(cfg *Config, host, target, slug, params string) (*Config, error) {
+// UpsertRoute adds a redirect or replaces its targets, slug, and params.
+// blockedTarget may be empty. Bots and blocked countries then stay rejected.
+func UpsertRoute(cfg *Config, host, target, blockedTarget, slug, params string) (*Config, error) {
 	host, err := normalizeHost(host)
 	if err != nil {
 		return nil, err
 	}
 	dest, err := parseTarget(target)
+	if err != nil {
+		return nil, err
+	}
+	blocked, err := parseOptionalTarget(blockedTarget)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +231,7 @@ func UpsertRoute(cfg *Config, host, target, slug, params string) (*Config, error
 		return nil, fmt.Errorf("config: domain %q is not in the incoming list", host)
 	}
 	next := cfg.clone()
-	route := Route{Host: host, Target: dest, Slug: slug, Params: params}
+	route := Route{Host: host, Target: dest, BlockedTarget: blocked, Slug: slug, Params: params}
 	for i, existing := range next.Routes {
 		if existing.Host == host {
 			next.Routes[i] = route
@@ -322,12 +333,16 @@ func (c *Config) file() file {
 	}
 	routes := make([]routeFile, 0, len(c.Routes))
 	for _, route := range c.Routes {
-		routes = append(routes, routeFile{
+		saved := routeFile{
 			Host:   route.Host,
 			Target: route.Target.String(),
 			Slug:   route.Slug,
 			Params: route.Params,
-		})
+		}
+		if route.BlockedTarget != nil {
+			saved.BlockedTarget = route.BlockedTarget.String()
+		}
+		routes = append(routes, saved)
 	}
 	proxies := c.TrustedRaw
 	if proxies == nil {
@@ -451,6 +466,13 @@ func parseParams(raw string) (string, error) {
 		return "", fmt.Errorf("parameter tidak valid")
 	}
 	return s, nil
+}
+
+func parseOptionalTarget(raw string) (*url.URL, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	return parseTarget(raw)
 }
 
 func parseTarget(raw string) (*url.URL, error) {

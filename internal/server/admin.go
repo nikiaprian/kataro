@@ -86,7 +86,7 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 	case "delete_domain":
 		err = h.deleteDomain(r.PostForm.Get("host"))
 	case "add_route":
-		err = h.addRoute(r.PostForm.Get("host"), r.PostForm.Get("target"), r.PostForm.Get("slug"), r.PostForm.Get("params"))
+		err = h.addRoute(r.PostForm.Get("host"), r.PostForm.Get("target"), r.PostForm.Get("blocked_target"), r.PostForm.Get("slug"), r.PostForm.Get("params"))
 	case "delete_route":
 		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
 			return config.RemoveRoute(cfg, r.PostForm.Get("host"))
@@ -159,13 +159,13 @@ func (h *handler) deleteDomain(host string) error {
 	})
 }
 
-func (h *handler) addRoute(host, target, slug, params string) error {
+func (h *handler) addRoute(host, target, blockedTarget, slug, params string) error {
 	normalized, err := config.NormalizeHost(host)
 	if err != nil || isDashboardHost(normalized) {
 		return errInvalid
 	}
 	return h.apply(func(cfg *config.Config) (*config.Config, error) {
-		return config.UpsertRoute(cfg, host, target, slug, params)
+		return config.UpsertRoute(cfg, host, target, blockedTarget, slug, params)
 	})
 }
 

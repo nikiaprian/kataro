@@ -99,27 +99,41 @@ func (g *Gate) HasRoute(host string) bool {
 	return ok
 }
 
-// Decide checks bot, then country, then host.
+// Decide checks the incoming route, then sends blocked visitors to the
+// blocked target when one is set. Otherwise a bot or blocked country is rejected.
 func (g *Gate) Decide(in Input) Decision {
-	if g.isBot(in.UserAgent) {
-		return Decision{Status: http.StatusForbidden}
-	}
-	country := strings.ToUpper(strings.TrimSpace(in.Country))
-	if _, ok := g.blocked[country]; ok {
-		return Decision{Status: http.StatusForbidden}
-	}
+	blockedVisitor := g.isBot(in.UserAgent) || g.isBlockedCountry(in.Country)
 	host, err := config.NormalizeHost(in.Host)
 	if err != nil {
-		return Decision{Status: http.StatusNotFound}
+		return g.rejectOrMiss(blockedVisitor)
 	}
 	route, ok := g.routes[host]
 	if !ok || !matchesIncoming(route, in.Path, in.RawQuery) {
-		return Decision{Status: http.StatusNotFound}
+		return g.rejectOrMiss(blockedVisitor)
+	}
+	if blockedVisitor {
+		if route.BlockedTarget != nil {
+			return Decision{Status: http.StatusFound, Location: route.BlockedTarget.String()}
+		}
+		return Decision{Status: http.StatusForbidden}
 	}
 	return Decision{
 		Status:   http.StatusFound,
 		Location: route.Target.String(),
 	}
+}
+
+func (g *Gate) isBlockedCountry(country string) bool {
+	country = strings.ToUpper(strings.TrimSpace(country))
+	_, ok := g.blocked[country]
+	return ok
+}
+
+func (g *Gate) rejectOrMiss(blockedVisitor bool) Decision {
+	if blockedVisitor {
+		return Decision{Status: http.StatusForbidden}
+	}
+	return Decision{Status: http.StatusNotFound}
 }
 
 func (g *Gate) isBot(ua string) bool {
