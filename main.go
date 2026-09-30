@@ -15,6 +15,7 @@ import (
 	"github.com/oschwald/geoip2-golang"
 
 	"keitaro/internal/config"
+	"keitaro/internal/nginx"
 	"keitaro/internal/server"
 )
 
@@ -33,7 +34,11 @@ func main() {
 	}
 	defer closeDB()
 
-	srv := server.Server(cfg.Listen, server.New(cfg, *configPath, lookup))
+	sites := nginx.FromEnv()
+	if sites.Active() {
+		log.Printf("nginx sites: %s", sites.Available)
+	}
+	srv := server.Server(cfg.Listen, server.New(cfg, *configPath, lookup, sites))
 	errCh := make(chan error, 1)
 	go func() {
 		log.Printf("listening on %s (%d routes)", cfg.Listen, len(cfg.Routes))

@@ -9,6 +9,7 @@ import (
 
 	"keitaro/internal/config"
 	"keitaro/internal/gate"
+	"keitaro/internal/nginx"
 )
 
 // CountryLookup resolves an IP to an ISO country code. Empty string means unknown.
@@ -23,17 +24,19 @@ type handler struct {
 	gate     *gate.Gate
 	lookup   CountryLookup
 	sessions *sessions
+	nginx    *nginx.Manager
 }
 
 // New returns an HTTP handler. lookup may be nil when country comes only from Cloudflare.
 // configPath is rewritten when the dashboard changes routes or blocked countries.
-func New(cfg *config.Config, configPath string, lookup CountryLookup) http.Handler {
+func New(cfg *config.Config, configPath string, lookup CountryLookup, sites *nginx.Manager) http.Handler {
 	return &handler{
 		cfg:      cfg,
 		path:     configPath,
 		gate:     gate.New(cfg),
 		lookup:   lookup,
 		sessions: newSessions(),
+		nginx:    sites,
 	}
 }
 

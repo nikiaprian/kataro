@@ -20,7 +20,9 @@ Di server, dari folder proyek:
 docker compose up -d
 ```
 
-Perintah itu membangun image, menjalankan layanan, dan membuka port 8080. `-d` membuatnya tetap jalan setelah terminal ditutup. Dashboard ada di **http://IP-SERVER:8080/**. Volume `gate-data` menyimpan `config.yaml`, jadi domain dan negara yang diubah dari browser tetap ada setelah container dibuat ulang.
+Perintah itu membangun image, menjalankan layanan, dan membuka port 8088 di server. Aplikasi di dalam container tetap memakai 8080. `-d` membuatnya tetap jalan setelah terminal ditutup. Dashboard ada di **http://IP-SERVER:8088/**. Volume `gate-data` menyimpan `config.yaml`, jadi domain dan negara yang diubah dari browser tetap ada setelah container dibuat ulang.
+
+Saat domain masuk ditambahkan, aplikasi menulis konfigurasi nginx di server dan memuat ulangnya. Centang **Pasang SSL** bila sertifikat Let's Encrypt juga diminta. Nginx di server meneruskan domain itu ke `127.0.0.1:8088`.
 
 Untuk memakai database negara, salin `GeoLite2-Country.mmdb` ke volume dan isi `geoip_db` dengan `/data/GeoLite2-Country.mmdb`.
 

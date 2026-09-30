@@ -1,10 +1,18 @@
 services:
   gate:
     build: .
+    pid: host
+    user: root
     ports:
-      - "8080:8080"
+      - "8088:8080"
+    environment:
+      NGINX_SITES_AVAILABLE: /host/etc/nginx/sites-available
+      NGINX_SITES_ENABLED: /host/etc/nginx/sites-enabled
+      NGINX_HOST_ROOT: /host
+      NGINX_UPSTREAM: 127.0.0.1:8088
     volumes:
       - gate-data:/data
+      - /:/host
     restart: unless-stopped
 
 volumes:

@@ -105,6 +105,13 @@ routes:
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(cfg.Domains) != 1 || cfg.Domains[0] != "go.example.com" {
+		t.Fatalf("domains = %+v", cfg.Domains)
+	}
+	cfg, err = AddDomain(cfg, "Ads.Example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg, err = UpsertRoute(cfg, "Ads.Example.com", "https://offer.example/baru")
 	if err != nil {
 		t.Fatal(err)

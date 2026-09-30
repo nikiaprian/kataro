@@ -28,7 +28,7 @@ func testHandler(t *testing.T, yaml string, lookup CountryLookup) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(cfg, filepath.Join(t.TempDir(), "config.yaml"), lookup)
+	return New(cfg, filepath.Join(t.TempDir(), "config.yaml"), lookup, nil)
 }
 
 const baseConfig = `
@@ -221,6 +221,31 @@ func TestLoginAndEdit(t *testing.T) {
 	}
 	csrf := csrfFrom(t, page)
 
+	rec = postForm(t, h, "127.0.0.1", "/", cookie, url.Values{
+		"csrf":   {csrf},
+		"action": {"add_route"},
+		"host":   {"ads.example.com"},
+		"target": {"https://offer.example/baru"},
+	})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Pilih domain masuk") {
+		t.Fatalf("route without domain status = %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	page = getAuth(t, h, cookie)
+	csrf = csrfFrom(t, page)
+	rec = postForm(t, h, "127.0.0.1", "/", cookie, url.Values{
+		"csrf":   {csrf},
+		"action": {"add_domain"},
+		"host":   {"ads.example.com"},
+	})
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("add domain status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	page = getAuth(t, h, cookie)
+	if !strings.Contains(page, `<option value="ads.example.com">`) {
+		t.Fatalf("dropdown missing domain: %s", page)
+	}
+	csrf = csrfFrom(t, page)
 	rec = postForm(t, h, "127.0.0.1", "/", cookie, url.Values{
 		"csrf":   {csrf},
 		"action": {"add_route"},

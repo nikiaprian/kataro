@@ -19,8 +19,10 @@ bot:
   # Pola tambahan, tidak peka huruf besar/kecil, dicocokkan sebagai potongan teks.
   user_agent_contains: []
 
-# Domain yang DNS-nya mengarah ke server ini. Dashboard tidak memakai entri ini:
-# dashboard terbuka lewat IP server atau localhost.
+# Domain yang DNS-nya mengarah ke server ini. Redirect memilih dari daftar ini.
+domains:
+  - go.example.com
+
 routes:
   - host: go.example.com
     target: https://offer.example/landing

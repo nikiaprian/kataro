@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 
+	"strings"
+
 	"keitaro/internal/config"
 	"keitaro/internal/gate"
 )
@@ -79,6 +81,10 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 	action := r.PostForm.Get("action")
 	var err error
 	switch action {
+	case "add_domain":
+		err = h.addDomain(r.PostForm.Get("host"), r.PostForm.Get("ssl") == "1", strings.TrimSpace(r.PostForm.Get("ssl_email")))
+	case "delete_domain":
+		err = h.deleteDomain(r.PostForm.Get("host"))
 	case "add_route":
 		err = h.addRoute(r.PostForm.Get("host"), r.PostForm.Get("target"))
 	case "delete_route":
@@ -102,6 +108,55 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (h *handler) addDomain(host string, ssl bool, email string) error {
+	normalized, err := config.NormalizeHost(host)
+	if err != nil || isDashboardHost(normalized) {
+		return errInvalid
+	}
+	if h.nginx != nil && h.nginx.Active() {
+		if err := h.nginx.Install(normalized, ssl, email); err != nil {
+			if saveErr := h.rememberDomain(host, email); saveErr != nil {
+				return saveErr
+			}
+			return err
+		}
+	} else if ssl {
+		if err := h.rememberDomain(host, email); err != nil {
+			return err
+		}
+		return errString("domain tersimpan, tetapi SSL hanya tersedia saat aplikasi dijalankan di server dengan nginx")
+	}
+	return h.rememberDomain(host, email)
+}
+
+func (h *handler) rememberDomain(host, email string) error {
+	return h.apply(func(cfg *config.Config) (*config.Config, error) {
+		next, err := config.AddDomain(cfg, host)
+		if err != nil {
+			return nil, err
+		}
+		if email != "" {
+			next.SSLEmail = email
+		}
+		return next, nil
+	})
+}
+
+func (h *handler) deleteDomain(host string) error {
+	normalized, err := config.NormalizeHost(host)
+	if err != nil {
+		return errInvalid
+	}
+	if h.nginx != nil && h.nginx.Active() {
+		if err := h.nginx.Remove(normalized); err != nil {
+			return err
+		}
+	}
+	return h.apply(func(cfg *config.Config) (*config.Config, error) {
+		return config.RemoveDomain(cfg, host)
+	})
 }
 
 func (h *handler) addRoute(host, target string) error {
@@ -136,11 +191,16 @@ func actionError(action string, err error) string {
 	if err == errSave {
 		return "Gagal menyimpan konfigurasi."
 	}
+	if err != errInvalid {
+		return err.Error()
+	}
 	switch action {
 	case "add_country", "delete_country":
 		return "Kode negara harus dua huruf, misalnya ID."
+	case "add_domain", "delete_domain":
+		return "Domain masuk tidak valid. Gunakan nama domain, bukan IP atau localhost."
 	default:
-		return "Domain masuk atau URL tujuan tidak valid. Gunakan nama domain, bukan IP atau localhost."
+		return "Pilih domain masuk yang sudah ditambahkan, dan isi URL tujuan yang valid."
 	}
 }
 

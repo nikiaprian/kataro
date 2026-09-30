@@ -26,7 +26,9 @@ type Config struct {
 	Blocked      map[string]struct{}
 	BlockEmptyUA bool
 	UAContains   []string
+	Domains      []string
 	Routes       []Route
+	SSLEmail     string
 }
 
 type file struct {
@@ -35,7 +37,9 @@ type file struct {
 	TrustedProxies   []string    `yaml:"trusted_proxies"`
 	BlockedCountries []string    `yaml:"blocked_countries"`
 	Bot              botFile     `yaml:"bot"`
+	Domains          []string    `yaml:"domains"`
 	Routes           []routeFile `yaml:"routes"`
+	SSLEmail         string      `yaml:"ssl_email"`
 }
 
 type botFile struct {
@@ -93,6 +97,11 @@ func Parse(raw []byte) (*Config, error) {
 		needles = append(needles, n)
 	}
 
+	domains, err := parseDomains(f.Domains)
+	if err != nil {
+		return nil, err
+	}
+
 	routes := make([]Route, 0, len(f.Routes))
 	seen := make(map[string]struct{}, len(f.Routes))
 	for i, r := range f.Routes {
@@ -110,6 +119,7 @@ func Parse(raw []byte) (*Config, error) {
 			return nil, fmt.Errorf("config: route %d: %w", i, err)
 		}
 		routes = append(routes, Route{Host: host, Target: target})
+		domains = appendDomain(domains, host)
 	}
 
 	return &Config{
@@ -120,8 +130,45 @@ func Parse(raw []byte) (*Config, error) {
 		Blocked:      blocked,
 		BlockEmptyUA: blockEmpty,
 		UAContains:   needles,
+		Domains:      domains,
 		Routes:       routes,
+		SSLEmail:     strings.TrimSpace(f.SSLEmail),
 	}, nil
+}
+
+// AddDomain records an incoming domain. A domain already in the list is unchanged.
+func AddDomain(cfg *Config, host string) (*Config, error) {
+	host, err := normalizeHost(host)
+	if err != nil {
+		return nil, err
+	}
+	next := cfg.clone()
+	next.Domains = appendDomain(next.Domains, host)
+	return next, nil
+}
+
+// RemoveDomain drops an incoming domain and any redirect that uses it.
+func RemoveDomain(cfg *Config, host string) (*Config, error) {
+	host, err := normalizeHost(host)
+	if err != nil {
+		return nil, err
+	}
+	next := cfg.clone()
+	kept := make([]string, 0, len(next.Domains))
+	for _, domain := range next.Domains {
+		if domain != host {
+			kept = append(kept, domain)
+		}
+	}
+	next.Domains = kept
+	routes := make([]Route, 0, len(next.Routes))
+	for _, route := range next.Routes {
+		if route.Host != host {
+			routes = append(routes, route)
+		}
+	}
+	next.Routes = routes
+	return next, nil
 }
 
 // UpsertRoute adds a redirect domain or replaces its target.
@@ -133,6 +180,9 @@ func UpsertRoute(cfg *Config, host, target string) (*Config, error) {
 	dest, err := parseTarget(target)
 	if err != nil {
 		return nil, err
+	}
+	if !hasDomain(cfg.Domains, host) {
+		return nil, fmt.Errorf("config: domain %q is not in the incoming list", host)
 	}
 	next := cfg.clone()
 	for i, route := range next.Routes {
@@ -215,6 +265,7 @@ func (c *Config) clone() *Config {
 	next.Trusted = append([]*net.IPNet(nil), c.Trusted...)
 	next.TrustedRaw = append([]string(nil), c.TrustedRaw...)
 	next.UAContains = append([]string(nil), c.UAContains...)
+	next.Domains = append([]string(nil), c.Domains...)
 	next.Routes = append([]Route(nil), c.Routes...)
 	next.Blocked = make(map[string]struct{}, len(c.Blocked))
 	for code := range c.Blocked {
@@ -229,6 +280,10 @@ func (c *Config) file() file {
 		countries = append(countries, code)
 	}
 	sort.Strings(countries)
+	domains := append([]string(nil), c.Domains...)
+	if domains == nil {
+		domains = []string{}
+	}
 	routes := make([]routeFile, 0, len(c.Routes))
 	for _, route := range c.Routes {
 		routes = append(routes, routeFile{Host: route.Host, Target: route.Target.String()})
@@ -257,8 +312,38 @@ func (c *Config) file() file {
 			BlockEmptyUserAgent: &blockEmpty,
 			UserAgentContains:   needles,
 		},
-		Routes: routes,
+		Domains:  domains,
+		Routes:   routes,
+		SSLEmail: c.SSLEmail,
 	}
+}
+
+func parseDomains(values []string) ([]string, error) {
+	out := make([]string, 0, len(values))
+	for i, raw := range values {
+		host, err := normalizeHost(raw)
+		if err != nil {
+			return nil, fmt.Errorf("config: domain %d: %w", i, err)
+		}
+		out = appendDomain(out, host)
+	}
+	return out, nil
+}
+
+func appendDomain(domains []string, host string) []string {
+	if hasDomain(domains, host) {
+		return domains
+	}
+	return append(domains, host)
+}
+
+func hasDomain(domains []string, host string) bool {
+	for _, domain := range domains {
+		if domain == host {
+			return true
+		}
+	}
+	return false
 }
 
 func parseCIDRs(values []string) ([]*net.IPNet, []string, error) {
