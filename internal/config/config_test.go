@@ -116,6 +116,10 @@ routes:
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg, err = UpsertRoute(cfg, "ads.example.com", "https://offer.example/lain", "", "lain", "a=[b]")
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg, err = AddCountry(cfg, "id")
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +132,7 @@ routes:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.Routes) != 2 || loaded.Routes[1].Host != "ads.example.com" {
+	if len(loaded.Routes) != 3 || loaded.Routes[1].Host != "ads.example.com" || loaded.Routes[2].Slug != "lain" {
 		t.Fatalf("routes = %+v", loaded.Routes)
 	}
 	if loaded.Routes[1].Target.String() != "https://offer.example/baru" {

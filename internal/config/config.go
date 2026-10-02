@@ -130,10 +130,6 @@ func Parse(raw []byte) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("config: route %d: %w", i, err)
 		}
-		if _, ok := seen[host]; ok {
-			return nil, fmt.Errorf("config: duplicate host %q", host)
-		}
-		seen[host] = struct{}{}
 
 		target, err := parseTarget(r.Target)
 		if err != nil {
@@ -151,6 +147,11 @@ func Parse(raw []byte) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("config: route %d: %w", i, err)
 		}
+		key := routeKey(host, slug, params)
+		if _, ok := seen[key]; ok {
+			return nil, fmt.Errorf("config: duplicate redirect %q", host+"/"+slug)
+		}
+		seen[key] = struct{}{}
 		routes = append(routes, Route{Host: host, Target: target, BlockedTarget: blocked, Slug: slug, Params: params})
 		domains = appendDomain(domains, host)
 	}
@@ -204,8 +205,9 @@ func RemoveDomain(cfg *Config, host string) (*Config, error) {
 	return next, nil
 }
 
-// UpsertRoute adds a redirect or replaces its targets, slug, and params.
-// blockedTarget may be empty. Bots and blocked countries then stay rejected.
+// UpsertRoute adds a redirect. The same host may have several redirects when
+// the slug or params differ. An identical host, slug, and params replaces
+// that redirect's targets. blockedTarget may be empty.
 func UpsertRoute(cfg *Config, host, target, blockedTarget, slug, params string) (*Config, error) {
 	host, err := normalizeHost(host)
 	if err != nil {
@@ -232,8 +234,9 @@ func UpsertRoute(cfg *Config, host, target, blockedTarget, slug, params string) 
 	}
 	next := cfg.clone()
 	route := Route{Host: host, Target: dest, BlockedTarget: blocked, Slug: slug, Params: params}
+	key := routeKey(host, slug, params)
 	for i, existing := range next.Routes {
-		if existing.Host == host {
+		if routeKey(existing.Host, existing.Slug, existing.Params) == key {
 			next.Routes[i] = route
 			return next, nil
 		}
@@ -242,21 +245,35 @@ func UpsertRoute(cfg *Config, host, target, blockedTarget, slug, params string) 
 	return next, nil
 }
 
-// RemoveRoute drops a redirect domain. A missing host is left unchanged.
-func RemoveRoute(cfg *Config, host string) (*Config, error) {
+// RemoveRoute drops one redirect identified by host, slug, and params.
+// A missing redirect is left unchanged.
+func RemoveRoute(cfg *Config, host, slug, params string) (*Config, error) {
 	host, err := normalizeHost(host)
 	if err != nil {
 		return nil, err
 	}
+	slug, err = parseSlug(slug)
+	if err != nil {
+		return nil, err
+	}
+	params, err = parseParams(params)
+	if err != nil {
+		return nil, err
+	}
+	key := routeKey(host, slug, params)
 	next := cfg.clone()
 	kept := make([]Route, 0, len(next.Routes))
 	for _, route := range next.Routes {
-		if route.Host != host {
+		if routeKey(route.Host, route.Slug, route.Params) != key {
 			kept = append(kept, route)
 		}
 	}
 	next.Routes = kept
 	return next, nil
+}
+
+func routeKey(host, slug, params string) string {
+	return host + "\n" + slug + "\n" + params
 }
 
 // AddCountry adds one ISO country code to the block list.

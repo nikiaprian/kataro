@@ -9,6 +9,8 @@ import (
 type dashRoute struct {
 	Host     string
 	Incoming string
+	Slug     string
+	Params   string
 	Target   string
 	Blocked  string
 }
@@ -98,6 +100,8 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
       <input type="hidden" name="csrf" value="{{$.CSRF}}">
       <input type="hidden" name="action" value="delete_route">
       <input type="hidden" name="host" value="{{.Host}}">
+      <input type="hidden" name="slug" value="{{.Slug}}">
+      <input type="hidden" name="params" value="{{.Params}}">
       <button type="submit">Hapus</button>
     </form>
   </td>
@@ -122,7 +126,7 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
   <input name="blocked_target" placeholder="https://tujuan-diblokir.com">
   <button type="submit">Simpan redirect</button>
 </form>
-<p>Slug dan parameter adalah bagian URL domain masuk, misalnya <code>domain-masuk.com/asdfg?zxc=[qwerty]</code>. Tanda <code>[qwerty]</code> cocok dengan nilai apa pun. Kunjungan yang lolos diarahkan ke URL tujuan. Bot dan negara yang diblokir diarahkan ke tujuan diblokir; jika kosong, permintaan ditolak.</p>
+<p>Slug dan parameter adalah bagian URL domain masuk, misalnya <code>domain-masuk.com/asdfg?zxc=[qwerty]</code>. Tanda <code>[qwerty]</code> cocok dengan nilai apa pun. Domain yang sama boleh punya lebih dari satu redirect selama slug atau parameternya berbeda. Kunjungan yang lolos diarahkan ke URL tujuan. Bot dan negara yang diblokir diarahkan ke tujuan diblokir; jika kosong, permintaan ditolak.</p>
 {{else}}
 <p>Tambahkan domain masuk terlebih dahulu.</p>
 {{end}}
@@ -206,6 +210,8 @@ func (h *handler) dashPage(csrf, errMsg string) dashPage {
 		row := dashRoute{
 			Host:     route.Host,
 			Incoming: route.Incoming(),
+			Slug:     route.Slug,
+			Params:   route.Params,
 			Target:   route.Target.String(),
 		}
 		if route.BlockedTarget != nil {

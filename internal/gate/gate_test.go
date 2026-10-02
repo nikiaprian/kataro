@@ -158,6 +158,30 @@ routes:
 	}
 }
 
+func TestSameHostDifferentSlug(t *testing.T) {
+	g := testGate(t, `
+routes:
+  - host: go.example.com
+    target: https://offer.example/satu
+    slug: slekv
+    params: "trshdah=[guts]"
+  - host: go.example.com
+    target: https://offer.example/dua
+    slug: lain
+    params: "a=[b]"
+`)
+	chrome := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+	first := g.Decide(Input{Host: "go.example.com", Path: "/slekv", UserAgent: chrome, Country: "ID", RawQuery: "trshdah=abc"})
+	if first.Status != http.StatusFound || first.Location != "https://offer.example/satu" {
+		t.Fatalf("first = %d %q", first.Status, first.Location)
+	}
+	second := g.Decide(Input{Host: "go.example.com", Path: "/lain", UserAgent: chrome, Country: "ID", RawQuery: "a=1"})
+	if second.Status != http.StatusFound || second.Location != "https://offer.example/dua" {
+		t.Fatalf("second = %d %q", second.Status, second.Location)
+	}
+}
+
 func TestEmptyUserAgentAllowed(t *testing.T) {
 	g := testGate(t, `
 bot:

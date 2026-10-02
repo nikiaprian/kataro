@@ -47,7 +47,7 @@ type Decision struct {
 
 // Gate decides whether to reject or redirect a request.
 type Gate struct {
-	routes     map[string]config.Route
+	routes     map[string][]config.Route
 	blocked    map[string]struct{}
 	needles    []string
 	blockEmpty bool
@@ -55,9 +55,9 @@ type Gate struct {
 
 // New builds a gate from validated config.
 func New(cfg *config.Config) *Gate {
-	routes := make(map[string]config.Route, len(cfg.Routes))
+	routes := make(map[string][]config.Route, len(cfg.Routes))
 	for _, r := range cfg.Routes {
-		routes[r.Host] = r
+		routes[r.Host] = append(routes[r.Host], r)
 	}
 	needles := make([]string, 0, len(defaultUAFragments)+len(cfg.UAContains))
 	seen := make(map[string]struct{}, len(defaultUAFragments)+len(cfg.UAContains))
@@ -95,8 +95,7 @@ func (g *Gate) HasRoute(host string) bool {
 	if err != nil {
 		return false
 	}
-	_, ok := g.routes[h]
-	return ok
+	return len(g.routes[h]) > 0
 }
 
 // Decide checks the incoming route, then sends blocked visitors to the
@@ -107,8 +106,8 @@ func (g *Gate) Decide(in Input) Decision {
 	if err != nil {
 		return g.rejectOrMiss(blockedVisitor)
 	}
-	route, ok := g.routes[host]
-	if !ok || !matchesIncoming(route, in.Path, in.RawQuery) {
+	route, ok := matchRoute(g.routes[host], in.Path, in.RawQuery)
+	if !ok {
 		return g.rejectOrMiss(blockedVisitor)
 	}
 	if blockedVisitor {
@@ -154,6 +153,41 @@ var tokenPattern = regexp.MustCompile(`\[([A-Za-z0-9_]+)\]`)
 // matchesIncoming reports whether the request path and query fit the route.
 // An empty slug matches any path. An empty params template matches any query.
 // A [name] token matches any value for that piece.
+// matchRoute picks the most specific redirect that fits the request.
+// A slug or query template outranks a redirect that accepts any path or query.
+func matchRoute(routes []config.Route, path, rawQuery string) (config.Route, bool) {
+	var best config.Route
+	found := false
+	bestScore := -1
+	for _, route := range routes {
+		if !matchesIncoming(route, path, rawQuery) {
+			continue
+		}
+		score := specificity(route)
+		if !found || score > bestScore {
+			best = route
+			bestScore = score
+			found = true
+		}
+	}
+	return best, found
+}
+
+func specificity(route config.Route) int {
+	score := 0
+	if strings.Trim(route.Slug, "/") != "" {
+		score += 1000
+	}
+	if strings.TrimSpace(route.Params) == "" {
+		return score
+	}
+	q, err := url.ParseQuery(route.Params)
+	if err != nil {
+		return score + 1
+	}
+	return score + len(q)
+}
+
 func matchesIncoming(route config.Route, path, rawQuery string) bool {
 	return pathMatches(route.Slug, path) && queryMatches(route.Params, rawQuery)
 }

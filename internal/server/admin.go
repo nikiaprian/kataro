@@ -89,7 +89,7 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 		err = h.addRoute(r.PostForm.Get("host"), r.PostForm.Get("target"), r.PostForm.Get("blocked_target"), r.PostForm.Get("slug"), r.PostForm.Get("params"))
 	case "delete_route":
 		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
-			return config.RemoveRoute(cfg, r.PostForm.Get("host"))
+			return config.RemoveRoute(cfg, r.PostForm.Get("host"), r.PostForm.Get("slug"), r.PostForm.Get("params"))
 		})
 	case "add_country":
 		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
