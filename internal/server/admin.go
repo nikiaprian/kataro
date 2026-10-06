@@ -127,6 +127,8 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
 			return config.RemoveReferer(cfg, r.PostForm.Get("referer"))
 		})
+	case "reset_clicks":
+		h.clicks.reset()
 	default:
 		h.writeDashboard(w, sess.csrf, "Perubahan tidak dikenali.")
 		return

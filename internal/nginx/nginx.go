@@ -220,7 +220,9 @@ func siteConfig(domain, upstream, fullchain, privkey string) string {
 		"    location / {\n" +
 		"        proxy_pass http://" + upstream + ";\n" +
 		"        proxy_set_header Host $host;\n" +
-		"        proxy_set_header X-Forwarded-For $remote_addr;\n" +
+		"        proxy_set_header CF-Connecting-IP $http_cf_connecting_ip;\n" +
+		"        proxy_set_header CF-IPCountry $http_cf_ipcountry;\n" +
+		"        proxy_set_header X-Forwarded-For $http_cf_connecting_ip;\n" +
 		"        proxy_set_header X-Forwarded-Proto $scheme;\n" +
 		"    }\n"
 	config := "# " + marker + "\n" +

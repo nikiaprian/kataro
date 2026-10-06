@@ -155,11 +155,18 @@ routes:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(edited.Routes) != 3 || edited.Routes[1].Slug != "baru" || edited.Routes[1].Target.String() != "https://offer.example/ubah" {
-		t.Fatalf("edited = %+v", edited.Routes[1])
+	var got *Route
+	lain := 0
+	for i := range edited.Routes {
+		switch edited.Routes[i].Slug {
+		case "baru":
+			got = &edited.Routes[i]
+		case "lain":
+			lain++
+		}
 	}
-	if edited.Routes[2].Slug != "lain" {
-		t.Fatalf("other route changed: %+v", edited.Routes[2])
+	if got == nil || got.Target.String() != "https://offer.example/ubah" || lain != 1 || len(edited.Routes) != 3 {
+		t.Fatalf("edited = %+v", edited.Routes)
 	}
 	if _, err := ReplaceRoute(edited, "ads.example.com", "baru", "k=[v]", "ads.example.com", "https://offer.example/x", "", "lain", "a=[b]"); err == nil {
 		t.Fatal("expected duplicate redirect to be rejected")

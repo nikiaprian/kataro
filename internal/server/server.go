@@ -38,7 +38,7 @@ func New(cfg *config.Config, configPath string, lookup CountryLookup, sites *ngi
 		lookup:   lookup,
 		sessions: newSessions(),
 		nginx:    sites,
-		clicks:   newClickWindow(),
+		clicks:   newClickWindow(configPath),
 	}
 }
 

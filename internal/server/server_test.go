@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"keitaro/internal/config"
 )
@@ -338,11 +339,19 @@ routes:
     target: https://offer.example/landing
     blocked_target: https://safe.example/home
 `, nil)
+	hh := h.(*handler)
 	first := httptest.NewRecorder()
 	h.ServeHTTP(first, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
 	if first.Code != http.StatusFound || first.Header().Get("Location") != "https://offer.example/landing" {
 		t.Fatalf("first = %d %q", first.Code, first.Header().Get("Location"))
 	}
+	// A repeat in the same moment is still the same click.
+	repeat := httptest.NewRecorder()
+	h.ServeHTTP(repeat, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
+	if repeat.Header().Get("Location") != "https://offer.example/landing" {
+		t.Fatalf("repeat = %q", repeat.Header().Get("Location"))
+	}
+	ageClicks(hh, time.Minute)
 	second := httptest.NewRecorder()
 	h.ServeHTTP(second, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
 	if second.Code != http.StatusFound || second.Header().Get("Location") != "https://safe.example/home" {
@@ -352,6 +361,108 @@ routes:
 	h.ServeHTTP(other, request(http.MethodGet, "go.example.com", "/", "203.0.113.9:4000"))
 	if other.Header().Get("Location") != "https://offer.example/landing" {
 		t.Fatalf("other ip location = %q", other.Header().Get("Location"))
+	}
+}
+
+func TestClickLimitUsesConfiguredMax(t *testing.T) {
+	h := testHandler(t, `
+click_limit: true
+click_limit_max: 3
+routes:
+  - host: go.example.com
+    target: https://offer.example/landing
+`, nil)
+	hh := h.(*handler)
+	for i := 0; i < 3; i++ {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
+		if rec.Header().Get("Location") != "https://offer.example/landing" {
+			t.Fatalf("click %d location = %q", i+1, rec.Header().Get("Location"))
+		}
+		ageClicks(hh, time.Minute)
+	}
+	blocked := httptest.NewRecorder()
+	h.ServeHTTP(blocked, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
+	if blocked.Code != http.StatusForbidden {
+		t.Fatalf("fourth status = %d", blocked.Code)
+	}
+}
+
+func TestClickLimitSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	cfg, err := config.Parse([]byte(`
+click_limit: true
+click_limit_max: 1
+routes:
+  - host: go.example.com
+    target: https://offer.example/landing
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	first := New(cfg, path, nil, nil)
+	rec := httptest.NewRecorder()
+	first.ServeHTTP(rec, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
+	if rec.Header().Get("Location") != "https://offer.example/landing" {
+		t.Fatalf("first = %q", rec.Header().Get("Location"))
+	}
+	restarted := New(cfg, path, nil, nil).(*handler)
+	ageClicks(restarted, time.Minute)
+	rec = httptest.NewRecorder()
+	restarted.ServeHTTP(rec, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("after restart status = %d location %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func TestResetClicks(t *testing.T) {
+	h := testHandler(t, `
+click_limit: true
+click_limit_max: 1
+routes:
+  - host: go.example.com
+    target: https://offer.example/landing
+`, nil)
+	hh := h.(*handler)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
+	ageClicks(hh, time.Minute)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("before reset status = %d", rec.Code)
+	}
+	hh.clicks.reset()
+	cfg, err := config.Parse([]byte(`
+click_limit: true
+click_limit_max: 1
+routes:
+  - host: go.example.com
+    target: https://offer.example/landing
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := New(cfg, hh.clicks.path, nil, nil)
+	rec = httptest.NewRecorder()
+	restarted.ServeHTTP(rec, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
+	if rec.Header().Get("Location") != "https://offer.example/landing" {
+		t.Fatalf("after reset location = %q", rec.Header().Get("Location"))
+	}
+}
+
+func ageClicks(h *handler, d time.Duration) {
+	h.clicks.mu.Lock()
+	defer h.clicks.mu.Unlock()
+	for ip, hits := range h.clicks.m {
+		for i := range hits {
+			hits[i] = hits[i].Add(-d)
+		}
+		h.clicks.m[ip] = hits
 	}
 }
 

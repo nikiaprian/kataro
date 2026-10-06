@@ -2,3 +2,4 @@
 /gate.exe
 *.mmdb
 config.yaml
+*.clicks

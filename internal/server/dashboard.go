@@ -165,11 +165,16 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <input type="hidden" name="action" value="save_filters">
   <label class="check"><input type="checkbox" name="click_limit" value="1" {{if .ClickLimit}}checked{{end}}> Batas klik per IP</label>
-  <input name="click_max" type="number" min="1" max="10000" value="{{.ClickMax}}" placeholder="per jam">
+  <input name="click_max" type="number" min="1" max="10000" value="{{.ClickMax}}"> kali per jam
   <label class="check"><input type="checkbox" name="referer_only" value="1" {{if .RefererOnly}}checked{{end}}> Hanya dari sumber iklan</label>
   <button type="submit">Simpan penyaring</button>
 </form>
-<p>Batas klik dihitung per jam untuk kunjungan yang lolos. Sumber iklan adalah domain perujuk, misalnya <code>facebook.com</code> juga mencakup <code>l.facebook.com</code>. Kalau sumber masih kosong, menyalakan penyaring ini menolak semua kunjungan.</p>
+<form class="inline" method="post" action="/">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <input type="hidden" name="action" value="reset_clicks">
+  <button type="submit">Reset klik pengunjung</button>
+</form>
+<p>Angka di atas adalah jumlah kunjungan yang lolos untuk satu IP dalam 1 jam. Beberapa permintaan dari klik yang sama dihitung satu kali. Sumber iklan adalah domain perujuk, misalnya <code>facebook.com</code> juga mencakup <code>l.facebook.com</code>. Kalau sumber masih kosong, menyalakan penyaring ini menolak semua kunjungan.</p>
 {{if .Referers}}
 <table>
 <tbody>
