@@ -33,7 +33,7 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dashboard</title>
+<title>kataro</title>
 <style>
   body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.45; max-width: 64rem; }
   table { border-collapse: collapse; width: 100%; }
@@ -52,7 +52,7 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
 </head>
 <body>
 <div class="top">
-  <h1>Dashboard</h1>
+  <h1>kataro</h1>
   <form method="post" action="/logout">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <button type="submit">Keluar</button>
@@ -249,7 +249,7 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Masuk</title>
+<title>kataro</title>
 <style>
   body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.45; }
   label { display: block; margin-top: 0.8rem; }
@@ -259,7 +259,7 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 </style>
 </head>
 <body>
-<h1>Masuk</h1>
+<h1>kataro</h1>
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 <form method="post" action="/login">
   <label>Nama<input name="username" autocomplete="username" required></label>
