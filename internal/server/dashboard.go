@@ -41,9 +41,10 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
   code, input, select { font-family: ui-monospace, monospace; }
   input, select { padding: 0.35rem 0.5rem; margin: 0 0.4rem 0.4rem 0; }
   button { padding: 0.35rem 0.7rem; }
-  form.inline { display: inline; }
+  form.inline { display: inline; margin-right: 0.35rem; }
   form.edit { margin: 0.35rem 0 0.8rem; }
   form.edit input, form.edit select { max-width: 14rem; }
+  tr.edit-row[hidden] { display: none; }
   label.check { margin-right: 0.6rem; }
   .error { color: #9b1c1c; }
   .top { display: flex; justify-content: space-between; align-items: center; }
@@ -111,9 +112,10 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
       <input type="hidden" name="params" value="{{.Params}}">
       <button type="submit">Hapus</button>
     </form>
+    <button type="button" class="edit-toggle">Ubah</button>
   </td>
 </tr>
-<tr>
+<tr class="edit-row" hidden>
   <td colspan="4">
     <form class="edit" method="post" action="/">
       <input type="hidden" name="csrf" value="{{$.CSRF}}">
@@ -224,6 +226,15 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
   <input name="country" placeholder="ID" maxlength="2" required>
   <button type="submit">Blokir negara</button>
 </form>
+<script>
+document.querySelectorAll(".edit-toggle").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var row = btn.closest("tr").nextElementSibling;
+    row.hidden = !row.hidden;
+    btn.textContent = row.hidden ? "Ubah" : "Tutup";
+  });
+});
+</script>
 </body>
 </html>
 `))
