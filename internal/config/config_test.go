@@ -150,4 +150,18 @@ routes:
 	if len(loaded.TrustedRaw) != 1 || loaded.TrustedRaw[0] != "127.0.0.1/32" {
 		t.Fatalf("proxies = %+v", loaded.TrustedRaw)
 	}
+
+	edited, err := ReplaceRoute(loaded, "ads.example.com", "asdfg", "zxc=[qwerty]", "ads.example.com", "https://offer.example/ubah", "", "baru", "k=[v]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edited.Routes) != 3 || edited.Routes[1].Slug != "baru" || edited.Routes[1].Target.String() != "https://offer.example/ubah" {
+		t.Fatalf("edited = %+v", edited.Routes[1])
+	}
+	if edited.Routes[2].Slug != "lain" {
+		t.Fatalf("other route changed: %+v", edited.Routes[2])
+	}
+	if _, err := ReplaceRoute(edited, "ads.example.com", "baru", "k=[v]", "ads.example.com", "https://offer.example/x", "", "lain", "a=[b]"); err == nil {
+		t.Fatal("expected duplicate redirect to be rejected")
+	}
 }

@@ -2,7 +2,7 @@ package server
 
 import (
 	"net/http"
-
+	"strconv"
 	"strings"
 
 	"keitaro/internal/config"
@@ -87,6 +87,17 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 		err = h.deleteDomain(r.PostForm.Get("host"))
 	case "add_route":
 		err = h.addRoute(r.PostForm.Get("host"), r.PostForm.Get("target"), r.PostForm.Get("blocked_target"), r.PostForm.Get("slug"), r.PostForm.Get("params"))
+	case "edit_route":
+		err = h.editRoute(
+			r.PostForm.Get("old_host"),
+			r.PostForm.Get("old_slug"),
+			r.PostForm.Get("old_params"),
+			r.PostForm.Get("host"),
+			r.PostForm.Get("target"),
+			r.PostForm.Get("blocked_target"),
+			r.PostForm.Get("slug"),
+			r.PostForm.Get("params"),
+		)
 	case "delete_route":
 		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
 			return config.RemoveRoute(cfg, r.PostForm.Get("host"), r.PostForm.Get("slug"), r.PostForm.Get("params"))
@@ -98,6 +109,23 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 	case "delete_country":
 		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
 			return config.RemoveCountry(cfg, r.PostForm.Get("country"))
+		})
+	case "save_filters":
+		max, convErr := atoiTrim(r.PostForm.Get("click_max"))
+		if convErr != nil {
+			err = errInvalid
+			break
+		}
+		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
+			return config.SetFilters(cfg, r.PostForm.Get("click_limit") == "1", max, r.PostForm.Get("referer_only") == "1")
+		})
+	case "add_referer":
+		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
+			return config.AddReferer(cfg, r.PostForm.Get("referer"))
+		})
+	case "delete_referer":
+		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
+			return config.RemoveReferer(cfg, r.PostForm.Get("referer"))
 		})
 	default:
 		h.writeDashboard(w, sess.csrf, "Perubahan tidak dikenali.")
@@ -169,6 +197,16 @@ func (h *handler) addRoute(host, target, blockedTarget, slug, params string) err
 	})
 }
 
+func (h *handler) editRoute(oldHost, oldSlug, oldParams, host, target, blockedTarget, slug, params string) error {
+	normalized, err := config.NormalizeHost(host)
+	if err != nil || isDashboardHost(normalized) {
+		return errInvalid
+	}
+	return h.apply(func(cfg *config.Config) (*config.Config, error) {
+		return config.ReplaceRoute(cfg, oldHost, oldSlug, oldParams, host, target, blockedTarget, slug, params)
+	})
+}
+
 func (h *handler) apply(fn func(*config.Config) (*config.Config, error)) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -199,9 +237,21 @@ func actionError(action string, err error) string {
 		return "Kode negara harus dua huruf, misalnya ID."
 	case "add_domain", "delete_domain":
 		return "Domain masuk tidak valid. Gunakan nama domain, bukan IP atau localhost."
+	case "save_filters":
+		return "Batas klik harus angka antara 1 dan 10000 per jam."
+	case "add_referer", "delete_referer":
+		return "Sumber iklan harus nama domain, misalnya facebook.com."
 	default:
 		return "Pilih domain masuk yang sudah ditambahkan, dan isi URL tujuan yang valid."
 	}
+}
+
+func atoiTrim(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(raw)
 }
 
 func (h *handler) currentSession(r *http.Request) (session, bool) {

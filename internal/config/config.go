@@ -37,16 +37,20 @@ func (r Route) Incoming() string {
 
 // Config is the validated runtime configuration.
 type Config struct {
-	Listen       string
-	GeoIPDB      string
-	Trusted      []*net.IPNet
-	TrustedRaw   []string
-	Blocked      map[string]struct{}
-	BlockEmptyUA bool
-	UAContains   []string
-	Domains      []string
-	Routes       []Route
-	SSLEmail     string
+	Listen        string
+	GeoIPDB       string
+	Trusted       []*net.IPNet
+	TrustedRaw    []string
+	Blocked       map[string]struct{}
+	BlockEmptyUA  bool
+	UAContains    []string
+	Domains       []string
+	Routes        []Route
+	SSLEmail      string
+	ClickLimit    bool
+	ClickLimitMax int
+	RefererOnly   bool
+	Referers      []string
 }
 
 type file struct {
@@ -58,6 +62,10 @@ type file struct {
 	Domains          []string    `yaml:"domains"`
 	Routes           []routeFile `yaml:"routes"`
 	SSLEmail         string      `yaml:"ssl_email"`
+	ClickLimit       bool        `yaml:"click_limit,omitempty"`
+	ClickLimitMax    int         `yaml:"click_limit_max,omitempty"`
+	RefererOnly      bool        `yaml:"referer_only,omitempty"`
+	Referers         []string    `yaml:"referers,omitempty"`
 }
 
 type botFile struct {
@@ -156,17 +164,26 @@ func Parse(raw []byte) (*Config, error) {
 		domains = appendDomain(domains, host)
 	}
 
+	referers, err := parseSources(f.Referers)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
-		Listen:       listen,
-		GeoIPDB:      strings.TrimSpace(f.GeoIPDB),
-		Trusted:      trusted,
-		TrustedRaw:   trustedRaw,
-		Blocked:      blocked,
-		BlockEmptyUA: blockEmpty,
-		UAContains:   needles,
-		Domains:      domains,
-		Routes:       routes,
-		SSLEmail:     strings.TrimSpace(f.SSLEmail),
+		Listen:        listen,
+		GeoIPDB:       strings.TrimSpace(f.GeoIPDB),
+		Trusted:       trusted,
+		TrustedRaw:    trustedRaw,
+		Blocked:       blocked,
+		BlockEmptyUA:  blockEmpty,
+		UAContains:    needles,
+		Domains:       domains,
+		Routes:        routes,
+		SSLEmail:      strings.TrimSpace(f.SSLEmail),
+		ClickLimit:    f.ClickLimit,
+		ClickLimitMax: f.ClickLimitMax,
+		RefererOnly:   f.RefererOnly,
+		Referers:      referers,
 	}, nil
 }
 
@@ -243,6 +260,56 @@ func UpsertRoute(cfg *Config, host, target, blockedTarget, slug, params string) 
 	}
 	next.Routes = append(next.Routes, route)
 	return next, nil
+}
+
+// ReplaceRoute updates one existing redirect. The original host, slug, and
+// params identify the row. The new values may change any of those fields.
+func ReplaceRoute(cfg *Config, oldHost, oldSlug, oldParams, host, target, blockedTarget, slug, params string) (*Config, error) {
+	oldHost, err := normalizeHost(oldHost)
+	if err != nil {
+		return nil, err
+	}
+	oldSlug, err = parseSlug(oldSlug)
+	if err != nil {
+		return nil, err
+	}
+	oldParams, err = parseParams(oldParams)
+	if err != nil {
+		return nil, err
+	}
+	host, err = normalizeHost(host)
+	if err != nil {
+		return nil, err
+	}
+	slug, err = parseSlug(slug)
+	if err != nil {
+		return nil, err
+	}
+	params, err = parseParams(params)
+	if err != nil {
+		return nil, err
+	}
+	oldKey := routeKey(oldHost, oldSlug, oldParams)
+	newKey := routeKey(host, slug, params)
+	found := false
+	for _, route := range cfg.Routes {
+		key := routeKey(route.Host, route.Slug, route.Params)
+		if key == oldKey {
+			found = true
+			continue
+		}
+		if key == newKey {
+			return nil, fmt.Errorf("redirect dengan slug dan parameter itu sudah ada")
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("redirect yang diubah tidak ditemukan")
+	}
+	next, err := RemoveRoute(cfg, oldHost, oldSlug, oldParams)
+	if err != nil {
+		return nil, err
+	}
+	return UpsertRoute(next, host, target, blockedTarget, slug, params)
 }
 
 // RemoveRoute drops one redirect identified by host, slug, and params.
@@ -331,6 +398,7 @@ func (c *Config) clone() *Config {
 	next.UAContains = append([]string(nil), c.UAContains...)
 	next.Domains = append([]string(nil), c.Domains...)
 	next.Routes = append([]Route(nil), c.Routes...)
+	next.Referers = append([]string(nil), c.Referers...)
 	next.Blocked = make(map[string]struct{}, len(c.Blocked))
 	for code := range c.Blocked {
 		next.Blocked[code] = struct{}{}
@@ -385,10 +453,92 @@ func (c *Config) file() file {
 			BlockEmptyUserAgent: &blockEmpty,
 			UserAgentContains:   needles,
 		},
-		Domains:  domains,
-		Routes:   routes,
-		SSLEmail: c.SSLEmail,
+		Domains:       domains,
+		Routes:        routes,
+		SSLEmail:      c.SSLEmail,
+		ClickLimit:    c.ClickLimit,
+		ClickLimitMax: c.ClickLimitMax,
+		RefererOnly:   c.RefererOnly,
+		Referers:      append([]string(nil), c.Referers...),
 	}
+}
+
+// SetFilters stores the optional spam filters. Both stay off unless enabled.
+// max is the allowed redirects per IP per hour and is kept even while the limit is off.
+func SetFilters(cfg *Config, clickOn bool, max int, refererOn bool) (*Config, error) {
+	if max < 0 || max > 10000 {
+		return nil, fmt.Errorf("batas klik harus antara 1 dan 10000 per jam")
+	}
+	if clickOn && max < 1 {
+		return nil, fmt.Errorf("batas klik harus antara 1 dan 10000 per jam")
+	}
+	next := cfg.clone()
+	next.ClickLimit = clickOn
+	next.ClickLimitMax = max
+	next.RefererOnly = refererOn
+	return next, nil
+}
+
+// AddReferer records a host that may send visitors, such as facebook.com.
+func AddReferer(cfg *Config, host string) (*Config, error) {
+	host, err := parseSource(host)
+	if err != nil {
+		return nil, err
+	}
+	next := cfg.clone()
+	for _, existing := range next.Referers {
+		if existing == host {
+			return next, nil
+		}
+	}
+	next.Referers = append(next.Referers, host)
+	sort.Strings(next.Referers)
+	return next, nil
+}
+
+// RemoveReferer drops one allowed referrer host.
+func RemoveReferer(cfg *Config, host string) (*Config, error) {
+	host, err := parseSource(host)
+	if err != nil {
+		return nil, err
+	}
+	next := cfg.clone()
+	kept := make([]string, 0, len(next.Referers))
+	for _, existing := range next.Referers {
+		if existing != host {
+			kept = append(kept, existing)
+		}
+	}
+	next.Referers = kept
+	return next, nil
+}
+
+func parseSources(values []string) ([]string, error) {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for i, raw := range values {
+		host, err := parseSource(raw)
+		if err != nil {
+			return nil, fmt.Errorf("config: referer %d: %w", i, err)
+		}
+		if _, ok := seen[host]; ok {
+			continue
+		}
+		seen[host] = struct{}{}
+		out = append(out, host)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func parseSource(raw string) (string, error) {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	raw = strings.TrimPrefix(raw, "https://")
+	raw = strings.TrimPrefix(raw, "http://")
+	if i := strings.IndexAny(raw, "/?#"); i >= 0 {
+		raw = raw[:i]
+	}
+	return normalizeHost(raw)
 }
 
 func parseDomains(values []string) ([]string, error) {

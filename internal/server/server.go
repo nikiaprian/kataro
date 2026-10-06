@@ -25,6 +25,7 @@ type handler struct {
 	lookup   CountryLookup
 	sessions *sessions
 	nginx    *nginx.Manager
+	clicks   *clickWindow
 }
 
 // New returns an HTTP handler. lookup may be nil when country comes only from Cloudflare.
@@ -37,6 +38,7 @@ func New(cfg *config.Config, configPath string, lookup CountryLookup, sites *ngi
 		lookup:   lookup,
 		sessions: newSessions(),
 		nginx:    sites,
+		clicks:   newClickWindow(),
 	}
 }
 
@@ -56,7 +58,7 @@ func Server(addr string, h http.Handler) *http.Server {
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 
-	g, trusted := h.snapshot()
+	g, trusted, clickOn, clickMax := h.snapshot()
 	host, hostErr := config.NormalizeHost(r.Host)
 	if hostErr == nil && isDashboardHost(host) && !g.HasRoute(host) {
 		if g.IsBot(r.UserAgent()) {
@@ -68,13 +70,18 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r, trusted)
-	decision := g.Decide(gate.Input{
+	in := gate.Input{
 		Host:      r.Host,
 		Path:      r.URL.Path,
 		UserAgent: r.UserAgent(),
 		RawQuery:  r.URL.RawQuery,
 		Country:   h.country(r, ip),
-	})
+		Referer:   r.Referer(),
+	}
+	decision := g.Decide(in)
+	if decision.CountClick && clickOn && ip != nil && !h.clicks.allow(ip.String(), clickMax, time.Now()) {
+		decision = g.BlockMatched(in)
+	}
 
 	if decision.Status == http.StatusFound {
 		w.Header().Set("Location", decision.Location)
@@ -82,10 +89,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(decision.Status)
 }
 
-func (h *handler) snapshot() (*gate.Gate, []*net.IPNet) {
+func (h *handler) snapshot() (*gate.Gate, []*net.IPNet, bool, int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.gate, h.cfg.Trusted
+	max := h.cfg.ClickLimitMax
+	if max <= 0 {
+		max = 5
+	}
+	return h.gate, h.cfg.Trusted, h.cfg.ClickLimit, max
 }
 
 func isDashboardHost(host string) bool {

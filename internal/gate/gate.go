@@ -37,20 +37,24 @@ type Input struct {
 	UserAgent string
 	RawQuery  string
 	Country   string
+	Referer   string
 }
 
 // Decision is the HTTP result. Location is set only for a redirect.
 type Decision struct {
-	Status   int
-	Location string
+	Status     int
+	Location   string
+	CountClick bool
 }
 
 // Gate decides whether to reject or redirect a request.
 type Gate struct {
-	routes     map[string][]config.Route
-	blocked    map[string]struct{}
-	needles    []string
-	blockEmpty bool
+	routes      map[string][]config.Route
+	blocked     map[string]struct{}
+	needles     []string
+	blockEmpty  bool
+	refererOnly bool
+	referers    map[string]struct{}
 }
 
 // New builds a gate from validated config.
@@ -76,11 +80,17 @@ func New(cfg *config.Config) *Gate {
 	if blocked == nil {
 		blocked = map[string]struct{}{}
 	}
+	referers := make(map[string]struct{}, len(cfg.Referers))
+	for _, host := range cfg.Referers {
+		referers[host] = struct{}{}
+	}
 	return &Gate{
-		routes:     routes,
-		blocked:    blocked,
-		needles:    needles,
-		blockEmpty: cfg.BlockEmptyUA,
+		routes:      routes,
+		blocked:     blocked,
+		needles:     needles,
+		blockEmpty:  cfg.BlockEmptyUA,
+		refererOnly: cfg.RefererOnly,
+		referers:    referers,
 	}
 }
 
@@ -110,16 +120,64 @@ func (g *Gate) Decide(in Input) Decision {
 	if !ok {
 		return g.rejectOrMiss(blockedVisitor)
 	}
+	if g.badReferer(in.Referer) {
+		blockedVisitor = true
+	}
 	if blockedVisitor {
-		if route.BlockedTarget != nil {
-			return Decision{Status: http.StatusFound, Location: route.BlockedTarget.String()}
-		}
-		return Decision{Status: http.StatusForbidden}
+		return blockedDecision(route)
 	}
 	return Decision{
-		Status:   http.StatusFound,
-		Location: route.Target.String(),
+		Status:     http.StatusFound,
+		Location:   route.Target.String(),
+		CountClick: true,
 	}
+}
+
+// BlockMatched sends a matched visitor to the blocked target, or rejects them.
+// Used when an allowed click is over the IP limit.
+func (g *Gate) BlockMatched(in Input) Decision {
+	host, err := config.NormalizeHost(in.Host)
+	if err != nil {
+		return Decision{Status: http.StatusForbidden}
+	}
+	route, ok := matchRoute(g.routes[host], in.Path, in.RawQuery)
+	if !ok {
+		return Decision{Status: http.StatusForbidden}
+	}
+	return blockedDecision(route)
+}
+
+func blockedDecision(route config.Route) Decision {
+	if route.BlockedTarget != nil {
+		return Decision{Status: http.StatusFound, Location: route.BlockedTarget.String()}
+	}
+	return Decision{Status: http.StatusForbidden}
+}
+
+func (g *Gate) badReferer(ref string) bool {
+	if !g.refererOnly {
+		return false
+	}
+	u, err := url.Parse(strings.TrimSpace(ref))
+	if err != nil || u.Hostname() == "" {
+		return true
+	}
+	return !hostAllowed(u.Hostname(), g.referers)
+}
+
+func hostAllowed(host string, sources map[string]struct{}) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for host != "" {
+		if _, ok := sources[host]; ok {
+			return true
+		}
+		dot := strings.IndexByte(host, '.')
+		if dot < 0 {
+			return false
+		}
+		host = host[dot+1:]
+	}
+	return false
 }
 
 func (g *Gate) isBlockedCountry(country string) bool {

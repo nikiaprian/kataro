@@ -182,6 +182,31 @@ routes:
 	}
 }
 
+func TestRefererFilter(t *testing.T) {
+	g := testGate(t, `
+referer_only: true
+referers: ["facebook.com"]
+routes:
+  - host: go.example.com
+    target: https://offer.example/landing
+    blocked_target: https://safe.example/home
+`)
+	chrome := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+	allowed := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "ID", Referer: "https://l.facebook.com/ads"})
+	if allowed.Status != http.StatusFound || allowed.Location != "https://offer.example/landing" || !allowed.CountClick {
+		t.Fatalf("allowed = %+v", allowed)
+	}
+	missing := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "ID"})
+	if missing.Status != http.StatusFound || missing.Location != "https://safe.example/home" || missing.CountClick {
+		t.Fatalf("missing = %+v", missing)
+	}
+	other := g.Decide(Input{Host: "go.example.com", UserAgent: chrome, Country: "ID", Referer: "https://example.com/"})
+	if other.Location != "https://safe.example/home" {
+		t.Fatalf("other = %+v", other)
+	}
+}
+
 func TestEmptyUserAgentAllowed(t *testing.T) {
 	g := testGate(t, `
 bot:

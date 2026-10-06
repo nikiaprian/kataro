@@ -19,6 +19,13 @@ bot:
   # Pola tambahan, tidak peka huruf besar/kecil, dicocokkan sebagai potongan teks.
   user_agent_contains: []
 
+# Penyaring spam. Keduanya mati sampai diubah dari dashboard.
+# click_limit: false
+# click_limit_max: 5
+# referer_only: false
+# referers:
+#   - facebook.com
+
 # Domain yang DNS-nya mengarah ke server ini. Redirect memilih dari daftar ini.
 domains:
   - go.example.com

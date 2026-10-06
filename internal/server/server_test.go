@@ -195,7 +195,7 @@ func TestLoginAndEdit(t *testing.T) {
 	h := testHandler(t, baseConfig, nil)
 
 	bad := postForm(t, h, "127.0.0.1", "/login", nil, url.Values{
-		"username": {"admin"},
+		"username": {"kataro"},
 		"password": {"salah"},
 	})
 	if bad.Code != http.StatusUnauthorized {
@@ -203,8 +203,8 @@ func TestLoginAndEdit(t *testing.T) {
 	}
 
 	rec := postForm(t, h, "127.0.0.1", "/login", nil, url.Values{
-		"username": {"admin"},
-		"password": {"keitaro123"},
+		"username": {"kataro"},
+		"password": {"@BebiiDigital2025"},
 	})
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("login status = %d, body %s", rec.Code, rec.Body.String())
@@ -327,6 +327,32 @@ func csrfFrom(t *testing.T, body string) string {
 		t.Fatal("csrf truncated")
 	}
 	return rest[:j]
+}
+
+func TestClickLimit(t *testing.T) {
+	h := testHandler(t, `
+click_limit: true
+click_limit_max: 1
+routes:
+  - host: go.example.com
+    target: https://offer.example/landing
+    blocked_target: https://safe.example/home
+`, nil)
+	first := httptest.NewRecorder()
+	h.ServeHTTP(first, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
+	if first.Code != http.StatusFound || first.Header().Get("Location") != "https://offer.example/landing" {
+		t.Fatalf("first = %d %q", first.Code, first.Header().Get("Location"))
+	}
+	second := httptest.NewRecorder()
+	h.ServeHTTP(second, request(http.MethodGet, "go.example.com", "/", "203.0.113.8:4000"))
+	if second.Code != http.StatusFound || second.Header().Get("Location") != "https://safe.example/home" {
+		t.Fatalf("second = %d %q", second.Code, second.Header().Get("Location"))
+	}
+	other := httptest.NewRecorder()
+	h.ServeHTTP(other, request(http.MethodGet, "go.example.com", "/", "203.0.113.9:4000"))
+	if other.Header().Get("Location") != "https://offer.example/landing" {
+		t.Fatalf("other ip location = %q", other.Header().Get("Location"))
+	}
 }
 
 func TestServerTimeouts(t *testing.T) {

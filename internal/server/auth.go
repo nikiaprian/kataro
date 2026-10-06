@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	adminUser = "admin"
-	adminPass = "keitaro123"
+	adminUser = "kataro"
+	adminPass = "@BebiiDigital2025"
 
 	sessionCookie = "gate_session"
 	sessionTTL    = 24 * time.Hour
