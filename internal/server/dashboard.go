@@ -13,6 +13,9 @@ type dashRoute struct {
 	Params   string
 	Target   string
 	Blocked  string
+	Clicks   int64
+	ToTarget int64
+	ToBlock  int64
 }
 
 type dashPage struct {
@@ -95,7 +98,7 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
 <h2>Redirect</h2>
 {{if .Routes}}
 <table>
-<thead><tr><th>Domain masuk</th><th>Tujuan</th><th>Tujuan diblokir</th><th></th></tr></thead>
+<thead><tr><th>Domain masuk</th><th>Tujuan</th><th>Tujuan diblokir</th><th>Klik</th><th>Ke tujuan</th><th>Diblokir</th><th></th></tr></thead>
 <tbody>
 {{range .Routes}}
 {{$route := .}}
@@ -103,6 +106,9 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
   <td><code>{{.Incoming}}</code></td>
   <td><code>{{.Target}}</code></td>
   <td><code>{{.Blocked}}</code></td>
+  <td>{{.Clicks}}</td>
+  <td>{{.ToTarget}}</td>
+  <td>{{.ToBlock}}</td>
   <td>
     <form class="inline" method="post" action="/">
       <input type="hidden" name="csrf" value="{{$.CSRF}}">
@@ -116,7 +122,7 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
   </td>
 </tr>
 <tr class="edit-row" hidden>
-  <td colspan="4">
+  <td colspan="7">
     <form class="edit" method="post" action="/">
       <input type="hidden" name="csrf" value="{{$.CSRF}}">
       <input type="hidden" name="action" value="edit_route">
@@ -295,13 +301,18 @@ func (h *handler) dashPage(csrf, errMsg string) dashPage {
 		ClickMax:    clickMax,
 		RefererOnly: h.cfg.RefererOnly,
 	}
+	stats := h.stats.snapshot()
 	for _, route := range h.cfg.Routes {
+		split := stats[statKey(route.Host, route.Slug, route.Params)]
 		row := dashRoute{
 			Host:     route.Host,
 			Incoming: route.Incoming(),
 			Slug:     route.Slug,
 			Params:   route.Params,
 			Target:   route.Target.String(),
+			Clicks:   split.total(),
+			ToTarget: split.Target,
+			ToBlock:  split.Blocked,
 		}
 		if route.BlockedTarget != nil {
 			row.Blocked = route.BlockedTarget.String()

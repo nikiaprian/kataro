@@ -3,3 +3,4 @@
 *.mmdb
 config.yaml
 *.clicks
+*.domainclicks

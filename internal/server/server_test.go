@@ -455,6 +455,75 @@ routes:
 	}
 }
 
+func TestRouteClickCount(t *testing.T) {
+	const yaml = `
+domains:
+  - go.example.com
+routes:
+  - host: go.example.com
+    slug: satu
+    params: z=[x]
+    target: https://offer.example/landing
+    blocked_target: https://blocked.example/no
+  - host: go.example.com
+    slug: dua
+    target: https://offer.example/other
+`
+	h := testHandler(t, yaml, nil)
+	hh := h.(*handler)
+	h.ServeHTTP(httptest.NewRecorder(), request(http.MethodGet, "go.example.com", "/satu?z=1", "203.0.113.8:4000"))
+	h.ServeHTTP(httptest.NewRecorder(), request(http.MethodGet, "go.example.com", "/satu?z=1", "203.0.113.8:4000"))
+	got := hh.stats.get("go.example.com", "satu", "z=[x]")
+	if got.Target != 1 || got.Blocked != 0 || got.total() != 1 {
+		t.Fatalf("burst split = %+v, want target 1", got)
+	}
+	ageDomainClicks(hh, time.Minute)
+	bot := request(http.MethodGet, "go.example.com", "/satu?z=9", "203.0.113.8:4000")
+	bot.Header.Set("User-Agent", "curl/8.0")
+	h.ServeHTTP(httptest.NewRecorder(), bot)
+	h.ServeHTTP(httptest.NewRecorder(), request(http.MethodGet, "go.example.com", "/dua", "203.0.113.9:4000"))
+	got = hh.stats.get("go.example.com", "satu", "z=[x]")
+	if got.Target != 1 || got.Blocked != 1 || got.total() != 2 {
+		t.Fatalf("satu split = %+v, want target 1 blocked 1", got)
+	}
+	if other := hh.stats.get("go.example.com", "dua", ""); other.Target != 1 || other.total() != 1 {
+		t.Fatalf("dua split = %+v, want target 1", other)
+	}
+	page := hh.dashPage("", "")
+	var satu dashRoute
+	for _, row := range page.Routes {
+		if row.Slug == "satu" {
+			satu = row
+		}
+	}
+	if satu.Clicks != 2 || satu.ToTarget != 1 || satu.ToBlock != 1 {
+		t.Fatalf("dashboard satu = %+v", satu)
+	}
+
+	restarted := New(mustConfig(t, yaml), hh.stats.path, nil, nil)
+	got = restarted.(*handler).stats.get("go.example.com", "satu", "z=[x]")
+	if got.Target != 1 || got.Blocked != 1 {
+		t.Fatalf("after restart split = %+v", got)
+	}
+}
+
+func mustConfig(t *testing.T, yaml string) *config.Config {
+	t.Helper()
+	cfg, err := config.Parse([]byte(yaml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func ageDomainClicks(h *handler, d time.Duration) {
+	h.stats.mu.Lock()
+	defer h.stats.mu.Unlock()
+	for key, seen := range h.stats.seen {
+		h.stats.seen[key] = seen.Add(-d)
+	}
+}
+
 func ageClicks(h *handler, d time.Duration) {
 	h.clicks.mu.Lock()
 	defer h.clicks.mu.Unlock()

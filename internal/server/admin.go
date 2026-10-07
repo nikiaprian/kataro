@@ -102,6 +102,9 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
 			return config.RemoveRoute(cfg, r.PostForm.Get("host"), r.PostForm.Get("slug"), r.PostForm.Get("params"))
 		})
+		if err == nil {
+			h.stats.forgetRoute(r.PostForm.Get("host"), r.PostForm.Get("slug"), r.PostForm.Get("params"))
+		}
 	case "add_country":
 		err = h.apply(func(cfg *config.Config) (*config.Config, error) {
 			return config.AddCountry(cfg, r.PostForm.Get("country"))
@@ -184,9 +187,13 @@ func (h *handler) deleteDomain(host string) error {
 			return err
 		}
 	}
-	return h.apply(func(cfg *config.Config) (*config.Config, error) {
+	err = h.apply(func(cfg *config.Config) (*config.Config, error) {
 		return config.RemoveDomain(cfg, host)
 	})
+	if err == nil {
+		h.stats.forgetHost(normalized)
+	}
+	return err
 }
 
 func (h *handler) addRoute(host, target, blockedTarget, slug, params string) error {
@@ -204,9 +211,13 @@ func (h *handler) editRoute(oldHost, oldSlug, oldParams, host, target, blockedTa
 	if err != nil || isDashboardHost(normalized) {
 		return errInvalid
 	}
-	return h.apply(func(cfg *config.Config) (*config.Config, error) {
+	err = h.apply(func(cfg *config.Config) (*config.Config, error) {
 		return config.ReplaceRoute(cfg, oldHost, oldSlug, oldParams, host, target, blockedTarget, slug, params)
 	})
+	if err == nil {
+		h.stats.rename(oldHost, oldSlug, oldParams, host, slug, params)
+	}
+	return err
 }
 
 func (h *handler) apply(fn func(*config.Config) (*config.Config, error)) error {

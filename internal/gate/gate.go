@@ -41,10 +41,14 @@ type Input struct {
 }
 
 // Decision is the HTTP result. Location is set only for a redirect.
+// Domain is set when the request matched a configured route.
 type Decision struct {
 	Status     int
 	Location   string
 	CountClick bool
+	Domain     string
+	Slug       string
+	Params     string
 }
 
 // Gate decides whether to reject or redirect a request.
@@ -124,12 +128,19 @@ func (g *Gate) Decide(in Input) Decision {
 		blockedVisitor = true
 	}
 	if blockedVisitor {
-		return blockedDecision(route)
+		decision := blockedDecision(route)
+		decision.Domain = host
+		decision.Slug = route.Slug
+		decision.Params = route.Params
+		return decision
 	}
 	return Decision{
 		Status:     http.StatusFound,
 		Location:   route.Target.String(),
 		CountClick: true,
+		Domain:     host,
+		Slug:       route.Slug,
+		Params:     route.Params,
 	}
 }
 

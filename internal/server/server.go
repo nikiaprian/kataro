@@ -26,6 +26,7 @@ type handler struct {
 	sessions *sessions
 	nginx    *nginx.Manager
 	clicks   *clickWindow
+	stats    *routeClicks
 }
 
 // New returns an HTTP handler. lookup may be nil when country comes only from Cloudflare.
@@ -39,6 +40,7 @@ func New(cfg *config.Config, configPath string, lookup CountryLookup, sites *ngi
 		sessions: newSessions(),
 		nginx:    sites,
 		clicks:   newClickWindow(configPath),
+		stats:    newDomainClicks(configPath),
 	}
 }
 
@@ -79,8 +81,18 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Referer:   r.Referer(),
 	}
 	decision := g.Decide(in)
+	domain := decision.Domain
+	slug := decision.Slug
+	params := decision.Params
 	if decision.CountClick && clickOn && ip != nil && !h.clicks.allow(ip.String(), clickMax, time.Now()) {
 		decision = g.BlockMatched(in)
+	}
+	if domain != "" {
+		ipKey := ""
+		if ip != nil {
+			ipKey = ip.String()
+		}
+		h.stats.add(domain, slug, params, ipKey, decision.CountClick, time.Now())
 	}
 
 	if decision.Status == http.StatusFound {
