@@ -20,13 +20,23 @@ func (s clickSplit) total() int64 {
 	return s.Target + s.Blocked
 }
 
+// wib is Western Indonesian Time, UTC+7, with no daylight-saving change.
+var wib = time.FixedZone("WIB", 7*60*60)
+
 // routeClicks keeps click totals for each redirect, identified by host, slug, and params.
+// Totals belong to the current WIB calendar day and clear at 00:00.
 // Repeated requests from the same IP inside clickBurst count once.
 type routeClicks struct {
 	mu     sync.Mutex
+	day    string
 	counts map[string]clickSplit
 	seen   map[string]time.Time
 	path   string
+}
+
+type clickFile struct {
+	Day    string                `json:"day"`
+	Counts map[string]clickSplit `json:"counts"`
 }
 
 func newDomainClicks(path string) *routeClicks {
@@ -47,6 +57,7 @@ func (d *routeClicks) add(host, slug, params, ip string, toTarget bool, now time
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.rollLocked(now)
 	d.pruneSeen(now)
 	if ip != "" {
 		burst := ip + " " + key
@@ -68,12 +79,14 @@ func (d *routeClicks) add(host, slug, params, ip string, toTarget bool, now time
 func (d *routeClicks) get(host, slug, params string) clickSplit {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.rollLocked(time.Now())
 	return d.counts[statKey(host, slug, params)]
 }
 
 func (d *routeClicks) snapshot() map[string]clickSplit {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.rollLocked(time.Now())
 	out := make(map[string]clickSplit, len(d.counts))
 	for key, split := range d.counts {
 		out[key] = split
@@ -90,6 +103,7 @@ func (d *routeClicks) forgetHost(host string) {
 	prefix = strings.Split(prefix, "\n")[0] + "\n"
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.rollLocked(time.Now())
 	changed := false
 	for key := range d.counts {
 		if strings.HasPrefix(key, prefix) {
@@ -106,6 +120,7 @@ func (d *routeClicks) forgetRoute(host, slug, params string) {
 	key := statKey(host, slug, params)
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.rollLocked(time.Now())
 	if _, ok := d.counts[key]; !ok {
 		return
 	}
@@ -121,6 +136,7 @@ func (d *routeClicks) rename(oldHost, oldSlug, oldParams, host, slug, params str
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.rollLocked(time.Now())
 	split, ok := d.counts[oldKey]
 	if !ok {
 		return
@@ -141,6 +157,21 @@ func (d *routeClicks) pruneSeen(now time.Time) {
 	}
 }
 
+func (d *routeClicks) rollLocked(now time.Time) {
+	today := wibDate(now)
+	if d.day == today {
+		return
+	}
+	d.day = today
+	d.counts = make(map[string]clickSplit)
+	d.seen = make(map[string]time.Time)
+	d.saveLocked()
+}
+
+func wibDate(now time.Time) string {
+	return now.In(wib).Format("2006-01-02")
+}
+
 func (d *routeClicks) load() {
 	if d.path == "" {
 		return
@@ -149,10 +180,26 @@ func (d *routeClicks) load() {
 	if err != nil {
 		return
 	}
-	var saved map[string]clickSplit
-	if json.Unmarshal(raw, &saved) != nil {
+	today := wibDate(time.Now())
+	var saved clickFile
+	if json.Unmarshal(raw, &saved) == nil && saved.Day != "" {
+		d.day = saved.Day
+		if saved.Day != today {
+			d.rollLocked(time.Now())
+			return
+		}
+		d.keep(saved.Counts)
 		return
 	}
+	var legacy map[string]clickSplit
+	if json.Unmarshal(raw, &legacy) != nil {
+		return
+	}
+	d.day = today
+	d.keep(legacy)
+}
+
+func (d *routeClicks) keep(saved map[string]clickSplit) {
 	for key, split := range saved {
 		if key != "" && split.total() > 0 {
 			d.counts[key] = split
@@ -164,7 +211,10 @@ func (d *routeClicks) saveLocked() {
 	if d.path == "" {
 		return
 	}
-	raw, err := json.Marshal(d.counts)
+	if d.counts == nil {
+		d.counts = map[string]clickSplit{}
+	}
+	raw, err := json.Marshal(clickFile{Day: d.day, Counts: d.counts})
 	if err != nil {
 		return
 	}

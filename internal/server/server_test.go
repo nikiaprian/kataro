@@ -505,6 +505,21 @@ routes:
 	if got.Target != 1 || got.Blocked != 1 {
 		t.Fatalf("after restart split = %+v", got)
 	}
+
+	restarted.(*handler).stats.mu.Lock()
+	restarted.(*handler).stats.day = wibDate(time.Now().In(wib).Add(-24 * time.Hour))
+	restarted.(*handler).stats.mu.Unlock()
+	page = restarted.(*handler).dashPage("", "")
+	for _, row := range page.Routes {
+		if row.Slug == "satu" && (row.Clicks != 0 || row.ToTarget != 0 || row.ToBlock != 0) {
+			t.Fatalf("after midnight satu = %+v", row)
+		}
+	}
+	restarted.ServeHTTP(httptest.NewRecorder(), request(http.MethodGet, "go.example.com", "/satu?z=1", "203.0.113.8:4000"))
+	got = restarted.(*handler).stats.get("go.example.com", "satu", "z=[x]")
+	if got.Target != 1 || got.Blocked != 0 || got.total() != 1 {
+		t.Fatalf("new day split = %+v, want target 1", got)
+	}
 }
 
 func mustConfig(t *testing.T, yaml string) *config.Config {

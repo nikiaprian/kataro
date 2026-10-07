@@ -96,6 +96,7 @@ var dashTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
 </form>
 
 <h2>Redirect</h2>
+<p>Angka klik direset tiap pukul 00.00 WIB.</p>
 {{if .Routes}}
 <table>
 <thead><tr><th>Domain masuk</th><th>Tujuan</th><th>Tujuan diblokir</th><th>Klik</th><th>Ke tujuan</th><th>Diblokir</th><th></th></tr></thead>
